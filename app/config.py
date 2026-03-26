@@ -1,0 +1,21 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Config:
+    INNER_AUTH_SERVICE_URL = os.getenv("INNER_AUTH_SERVICE_URL")
+    AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
+    AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
+    AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
+    AUTH0_REDIRECT_URI = os.getenv("AUTH0_REDIRECT_URI")
+    AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
+    AUTH0_SCOPE = os.getenv("AUTH0_SCOPE")
+    AUTH0_STATE = os.getenv("AUTH0_STATE")
+    AUTH0_DB_CONNECTION = os.getenv("AUTH0_DB_CONNECTION")
+    CARDIO_TRACE_CLINIC_ID = os.getenv("CARDIO_TRACE_CLINIC_ID")
+    PATIENT_ROLE_ID = os.getenv("PATIENT_ROLE_ID")
+    DOCTOR_ROLE_ID = os.getenv("DOCTOR_ROLE_ID")
+    API_EXPLORER_CLIENT_ID = os.getenv("API_EXPLORER_CLIENT_ID")
+    API_EXPLORER_CLIENT_SECRET = os.getenv("API_EXPLORER_CLIENT_SECRET")
+    FRONTEND_URL = os.getenv("FRONTEND_URL")
