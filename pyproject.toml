@@ -1,0 +1,12 @@
+[project]
+name = "cardio-trace-auth-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "auth0-fastapi>=1.0.0b6",
+    "auth0-python>=5.1.0",
+    "fastapi[standard]>=0.135.2",
+    "requests>=2.32.5",
+]
