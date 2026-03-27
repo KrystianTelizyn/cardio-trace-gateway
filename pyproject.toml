@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "cardio-trace-auth-service"
 version = "0.1.0"
@@ -10,3 +14,6 @@ dependencies = [
     "fastapi[standard]>=0.135.2",
     "requests>=2.32.5",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
