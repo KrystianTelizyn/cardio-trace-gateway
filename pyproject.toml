@@ -18,8 +18,21 @@ dependencies = [
     "requests>=2.32.5",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
+]
+
 [tool.uv]
 package = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --cov=app.gateway --cov=app.deps --cov=app.routes --cov=app.error_handlers --cov-fail-under=80"
+testpaths = ["tests"]
+asyncio_mode = "auto"

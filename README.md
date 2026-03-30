@@ -61,6 +61,20 @@ uv lock
 uv sync
 ```
 
+## Testing
+
+Install test dependencies:
+
+```bash
+uv sync --group dev
+```
+
+Run the CI-friendly test command (includes coverage gate at 80% for gateway/security modules):
+
+```bash
+uv run pytest
+```
+
 
 ## Platform ADRs
 
