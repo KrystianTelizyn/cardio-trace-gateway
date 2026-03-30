@@ -5,11 +5,14 @@ load_dotenv()
 
 class Config:
     INNER_AUTH_SERVICE_URL = os.getenv("INNER_AUTH_SERVICE_URL")
+    HASURA_GRAPHQL_URL = os.getenv("HASURA_GRAPHQL_URL")
     AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
     AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
     AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
     AUTH0_REDIRECT_URI = os.getenv("AUTH0_REDIRECT_URI")
     AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
+    # If unset, issuer defaults to https://{AUTH0_DOMAIN}/ (must match access token `iss`).
+    AUTH0_ISSUER = os.getenv("AUTH0_ISSUER")
     AUTH0_SCOPE = os.getenv("AUTH0_SCOPE")
     AUTH0_STATE = os.getenv("AUTH0_STATE")
     AUTH0_DB_CONNECTION = os.getenv("AUTH0_DB_CONNECTION")

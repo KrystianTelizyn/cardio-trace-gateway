@@ -19,6 +19,7 @@ class CallbackResponse(BaseModel):
 
 class LogoutResponse(BaseModel):
     logout: bool
+    logout_url: str
     message: str
 
 

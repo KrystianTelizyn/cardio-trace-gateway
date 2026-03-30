@@ -10,9 +10,56 @@ FastAPI **Backend-for-Frontend (BFF)** and **API gateway** for the Cardio Trace 
 
 The gateway **orchestrates and proxies**; it does **not** own domain business rules—that stays in core backend, Hasura metadata/RBAC, and other services ([ADR 0008](../cardio-trace-platform-architecture/docs/adr/0008-gateway-bff-api-aggregator.md)).
 
+## Request flow 
+
+```mermaid
+flowchart LR
+  client[Client]
+  fastapi[FastAPI_routes]
+  gateway[Gateway]
+  auth0[Auth0_session]
+  inner[Inner_REST]
+  hasura[Hasura_GraphQL]
+
+  client --> fastapi
+  fastapi --> gateway
+  gateway --> auth0
+  fastapi -->|"cookie session"| gateway
+  gateway -->|"Bearer token"| inner
+  gateway -->|"Bearer token"| hasura
+```
+
+
 ## Architecture notes
 
 Implementation follows a composed **`Gateway`** facade with namespaced pieces: **`auth`** (Auth0 session / `ServerClient`), **`invites`** (Auth0 Management–backed invite flows), and **`router`** (reverse proxy to inner REST and GraphQL). Route handlers stay thin; proxy responses are built as proper Starlette responses. Configuration includes inner REST base URL and **`HASURA_GRAPHQL_URL`** for GraphQL forwarding.
+
+## Development
+
+This project uses **[uv](https://docs.astral.sh/uv/)** for environments and dependency management (see [`pyproject.toml`](pyproject.toml) and the lockfile [`uv.lock`](uv.lock)).
+
+From the repository root:
+
+```bash
+uv sync
+```
+
+That creates or updates `.venv`, installs the project in editable mode, and resolves dependencies from the lockfile.
+
+Run the app (after configuring `.env`):
+
+```bash
+uv run fastapi dev app.main:app --reload
+```
+
+Add or upgrade a dependency and refresh the lockfile:
+
+```bash
+uv add <package>
+# or edit pyproject.toml, then:
+uv lock
+uv sync
+```
 
 
 ## Platform ADRs

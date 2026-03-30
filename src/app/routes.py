@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from app.deps import get_auth_service, require_cookie_access_token
-from app.service import AuthService
+
+from app.deps import get_gateway, require_cookie_access_token, csrf_api, csrf_graphql
+from app.gateway import Gateway
 from app.schemas import (
     CallbackResponse,
     InviteRequest,
@@ -11,120 +12,114 @@ from app.schemas import (
     LoginUrlResponse,
     LogoutResponse,
 )
+
 router = APIRouter()
+
 
 @router.get("/url/auth0", response_model=LoginUrlResponse)
 async def login(
     request: Request,
     response: Response,
     payload: LoginUrlRequest = Depends(),
-    auth_service: AuthService = Depends(get_auth_service),
+    gateway: Gateway = Depends(get_gateway),
 ) -> LoginUrlResponse:
-
-    login_url = await auth_service.build_login_url(
+    login_url = await gateway.auth.build_login_url(
         invitation=payload.invitation,
         organization=payload.organization,
         organization_name=payload.organization_name,
         store_options={
             "request": request,
             "response": response,
-        }
+        },
     )
-
     return LoginUrlResponse(login_url=login_url, message="Follow the link to initiate login.")
+
 
 @router.get("/callback", response_model=CallbackResponse)
 async def callback(
     request: Request,
     response: Response,
-    auth_service: AuthService = Depends(get_auth_service),
+    gateway: Gateway = Depends(get_gateway),
 ) -> CallbackResponse:
-
-    await auth_service.process_callback(
+    await gateway.auth.process_callback(
         callback_url=str(request.url),
         store_options={
             "request": request,
             "response": response,
-        }
+        },
     )
+    gateway.auth.set_csrf_token_cookie(response)
     return CallbackResponse(success=True, message="Authentication successful, tokens set in cookie.")
+
 
 @router.get("/logout", response_model=LogoutResponse)
 async def logout(
-    request: Request, 
+    request: Request,
     response: Response,
-    auth_service: AuthService = Depends(get_auth_service),
+    gateway: Gateway = Depends(get_gateway),
 ) -> LogoutResponse:
-    await auth_service.process_logout(
+    logout_url = await gateway.auth.process_logout(
         store_options={
             "request": request,
             "response": response,
-        }
+        },
     )
-    return LogoutResponse(logout=True, message="Logout successful.")
+    gateway.auth.clear_csrf_token_cookie(response)
+    return LogoutResponse(
+        logout=True,
+        logout_url=logout_url,
+        message="Logout successful.",
+    )
+
 
 @router.post("/url/invite", response_model=InviteResponse)
 async def invite(
     payload: InviteRequest,
-    auth_service: AuthService = Depends(get_auth_service),
+    gateway: Gateway = Depends(get_gateway),
 ) -> InviteResponse:
     if payload.role == InviteRole.patient:
-        invite_url = auth_service.invite_patient(str(payload.email))
+        invite_url = gateway.invites.invite_patient(str(payload.email))
     elif payload.role == InviteRole.doctor:
-        invite_url = auth_service.invite_doctor(str(payload.email))
+        invite_url = gateway.invites.invite_doctor(str(payload.email))
     else:
         raise HTTPException(status_code=400, detail="Invalid role.")
-    return InviteResponse(invite_url=invite_url, message="User invited. Follow the link to complete the invitation.")
+    return InviteResponse(
+        invite_url=invite_url,
+        message="User invited. Follow the link to complete the invitation.",
+    )
 
 
 _GATEWAY_HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 
 
-@router.api_route("/api/", methods=_GATEWAY_HTTP_METHODS, tags=["gateway"])
 @router.api_route("/api/{proxy_path:path}", methods=_GATEWAY_HTTP_METHODS, tags=["gateway"])
-async def gateway_rest_proxy_placeholder(
+async def gateway_rest_proxy(
     request: Request,
     proxy_path: str = "",
-    _access_token: str = Depends(require_cookie_access_token),
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
 ):
-    """Placeholder for forwarding to the hidden REST API; requires Auth0 cookie session."""
-    return JSONResponse(
-        content={
-            "status": "placeholder",
-            "gateway": "rest",
-            "method": request.method,
-            "upstream_path": proxy_path or "",
-        }
-    )
+    gateway.jwt.validate_access_token(access_token)
+    return await gateway.router.api(request, proxy_path, access_token)
 
 
 @router.api_route("/graphql", methods=["GET", "POST"], tags=["gateway"])
-async def gateway_graphql_placeholder(
+async def gateway_graphql(
     request: Request,
-    _access_token: str = Depends(require_cookie_access_token),
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_ok: None = Depends(csrf_graphql),
+    gateway: Gateway = Depends(get_gateway),
 ):
-    """Placeholder for GraphQL proxy; requires Auth0 cookie session."""
-    return JSONResponse(
-        content={
-            "status": "placeholder",
-            "gateway": "graphql",
-            "method": request.method,
-        }
-    )
+    gateway.jwt.validate_access_token(access_token)
+    return await gateway.router.graphql(request, access_token)
 
 
-
-# This is a debug endpoint to reveal the tokens in the cookie
 @router.get("/reveal-tokens")
 async def reveal_tokens(
     request: Request,
     response: Response,
-    auth_service: AuthService = Depends(get_auth_service),
+    gateway: Gateway = Depends(get_gateway),
 ):
-    session = await auth_service.server_client.get_session(
-        store_options={
-            "request": request,
-            "response": response,
-        }
-    )
+    session = await gateway.auth.get_session_from_request(request, response)
     return JSONResponse(content=session)
