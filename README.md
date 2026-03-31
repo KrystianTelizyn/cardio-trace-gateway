@@ -75,6 +75,34 @@ Run the CI-friendly test command (includes coverage gate at 80% for gateway/secu
 uv run pytest
 ```
 
+Run only unit/contract tests:
+
+```bash
+uv run pytest -m "not integration"
+```
+
+Run integration tests against staging services:
+
+```bash
+RUN_INTEGRATION=1 uv run pytest --no-cov -m integration
+```
+
+Integration tests require these environment variables:
+
+- `INTEGRATION_GATEWAY_BASE_URL`
+- `INTEGRATION_AUTH0_DOMAIN`
+- `INTEGRATION_INNER_SERVICE_URL`
+- `INTEGRATION_HASURA_URL`
+- `INTEGRATION_EXAMPLE_ACCESS_TOKEN`
+
+Optional integration variables:
+
+- `INTEGRATION_AUTH0_CALLBACK_QUERY` (`code=...&state=...` for callback test)
+- `INTEGRATION_SESSION_COOKIE` (raw cookie header value for authenticated proxy tests)
+- `INTEGRATION_CSRF_TOKEN` (for CSRF-success mutation test)
+- `INTEGRATION_INNER_PROBE_PATH` (default: `health`)
+- `INTEGRATION_GRAPHQL_PROBE_QUERY` (default: `{__typename}`)
+
 
 ## Platform ADRs
 

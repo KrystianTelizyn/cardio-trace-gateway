@@ -1,27 +1,157 @@
+from __future__ import annotations
+
 import os
-from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import Mapping
+from app.exceptions import ConfigError
 
-load_dotenv()
+class Env:
+    """
+    Small wrapper around an environment mapping.
 
-class Config:
-    INNER_AUTH_SERVICE_URL = os.getenv("INNER_AUTH_SERVICE_URL")
-    HASURA_GRAPHQL_URL = os.getenv("HASURA_GRAPHQL_URL")
-    AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
-    AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
-    AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
-    AUTH0_REDIRECT_URI = os.getenv("AUTH0_REDIRECT_URI")
-    AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
-    # If unset, issuer defaults to https://{AUTH0_DOMAIN}/ (must match access token `iss`).
-    AUTH0_ISSUER = os.getenv("AUTH0_ISSUER")
-    AUTH0_SCOPE = os.getenv("AUTH0_SCOPE")
-    AUTH0_STATE = os.getenv("AUTH0_STATE")
-    AUTH0_DB_CONNECTION = os.getenv("AUTH0_DB_CONNECTION")
-    AUTH0_SECRET = os.getenv("AUTH0_SECRET")
-    CARDIO_TRACE_CLINIC_ID = os.getenv("CARDIO_TRACE_CLINIC_ID")
-    PATIENT_ROLE_ID = os.getenv("PATIENT_ROLE_ID")
-    DOCTOR_ROLE_ID = os.getenv("DOCTOR_ROLE_ID")
-    API_EXPLORER_CLIENT_ID = os.getenv("API_EXPLORER_CLIENT_ID")
-    API_EXPLORER_CLIENT_SECRET = os.getenv("API_EXPLORER_CLIENT_SECRET")
-    FRONTEND_URL = os.getenv("FRONTEND_URL")
-    CARDIO_TRACE_APPLICATION_LOGIN_URI = os.getenv("CARDIO_TRACE_APPLICATION_LOGIN_URI")
-    INVITE_URL_REPLACEMENT = os.getenv("INVITE_URL_REPLACEMENT")
+    - Normalises empty strings -> None
+    - Supports `required=True` to fail fast
+    - Makes it easy to inject a fake env in tests
+    """
+
+    def __init__(self, environ: Mapping[str, str]):
+        self._environ = environ
+
+    def __call__(self, key: str, *, required: bool = True) -> str | None:
+        value = self._environ.get(key)
+        if value is not None:
+            value = value.strip() or None
+
+        if required and value is None:
+            raise ConfigError(f"Missing required environment variable: {key}")
+
+        return value
+
+@dataclass(frozen=True)
+class AuthSettings:
+    """
+    Settings for Auth0 interactive session / ServerClient flows (`GatewayAuth`).
+    """
+
+    domain: str
+    audience: str
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    secret: str
+    scope: str
+    frontend_url: str
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "AuthSettings":
+        env = Env(environ)
+        return cls(
+            domain=env("AUTH0_DOMAIN"),
+            audience=env("AUTH0_AUDIENCE"),
+            client_id=env("AUTH0_CLIENT_ID"),
+            client_secret=env("AUTH0_CLIENT_SECRET"),
+            redirect_uri=env("AUTH0_REDIRECT_URI"),
+            secret=env("AUTH0_SECRET"),
+            scope=env("AUTH0_SCOPE"),
+            frontend_url=env("FRONTEND_URL"),
+        )
+
+
+@dataclass(frozen=True)
+class InviteSettings:
+    """
+    Settings for Auth0 Management / invitation flows (`Invites`).
+    """
+
+    cardio_trace_clinic_id: str
+    patient_role_id: str
+    doctor_role_id: str
+    api_explorer_client_id: str
+    api_explorer_client_secret: str
+    auth0_client_id: str
+    cardio_trace_application_login_uri: str
+    invite_url_replacement: str
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "InviteSettings":
+        env = Env(environ)
+        return cls(
+            cardio_trace_clinic_id=env("CARDIO_TRACE_CLINIC_ID"),
+            patient_role_id=env("PATIENT_ROLE_ID"),
+            doctor_role_id=env("DOCTOR_ROLE_ID"),
+            api_explorer_client_id=env("API_EXPLORER_CLIENT_ID"),
+            api_explorer_client_secret=env("API_EXPLORER_CLIENT_SECRET"),
+            auth0_client_id=env("AUTH0_CLIENT_ID"),
+            cardio_trace_application_login_uri=env("CARDIO_TRACE_APPLICATION_LOGIN_URI"),
+            invite_url_replacement=env("INVITE_URL_REPLACEMENT"),
+        )
+
+
+@dataclass(frozen=True)
+class RouterSettings:
+    """
+    Settings for the gateway's HTTP-facing behaviour and upstream locations.
+    """
+
+    inner_auth_service_url: str
+    hasura_graphql_url: str
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "RouterSettings":
+        env = Env(environ)
+        return cls(
+            inner_auth_service_url=env("INNER_AUTH_SERVICE_URL"),
+            hasura_graphql_url=env("HASURA_GRAPHQL_URL"),
+        )
+
+
+@dataclass(frozen=True)
+class JwtSettings:
+    """
+    Settings for JWT validation (`GatewayJwt`).
+    """
+
+    domain: str
+    audience: str
+    issuer: str
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "JwtSettings":
+        env = Env(environ)
+        # By default, issuer falls back to https://{AUTH0_DOMAIN}/ as in the
+        # real code; that logic would live alongside this settings usage.
+        domain = env("AUTH0_DOMAIN")
+        issuer = env("AUTH0_ISSUER") or f"https://{domain}/"
+        return cls(
+            domain=domain,
+            audience=env("AUTH0_AUDIENCE"),
+            issuer=issuer,
+        )
+
+
+@dataclass(frozen=True)
+class AppSettings:
+    """
+    Aggregate of all gateway settings.
+
+    In production you'd typically construct this once at startup and then
+    pass only the sub-settings each component needs.
+    """
+
+    auth: AuthSettings
+    invites: InviteSettings
+    router: RouterSettings
+    jwt: JwtSettings
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "AppSettings":
+        auth = AuthSettings.from_env(environ)
+        router = RouterSettings.from_env(environ)
+        invites = InviteSettings.from_env(environ)
+        jwt = JwtSettings.from_env(environ)
+        return cls(
+            auth=auth,
+            invites=invites,
+            router=router,
+            jwt=jwt,
+        )

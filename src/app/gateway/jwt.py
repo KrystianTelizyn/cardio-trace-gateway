@@ -3,7 +3,7 @@ from typing import Any
 import jwt
 from jwt import PyJWKClient
 
-from app.config import Config
+from app.config import JwtSettings
 from app.exceptions import JwtValidationError
 
 # Small tolerance for exp/nbf across skewed clocks (Auth0 access tokens often include several audiences in `aud`).
@@ -25,17 +25,12 @@ class GatewayJwt:
     are returned in the decoded dict unchanged.
     """
 
-    def __init__(self) -> None:
-        domain = Config.AUTH0_DOMAIN
-        audience = Config.AUTH0_AUDIENCE
-        if not domain or not audience:
-            raise RuntimeError(
-                "AUTH0_DOMAIN and AUTH0_AUDIENCE are required for JWT validation."
-            )
-        issuer_raw = Config.AUTH0_ISSUER or f"https://{domain}"
+    def __init__(self, settings: JwtSettings) -> None:
+        self._settings = settings
+        issuer_raw = settings.issuer or f"https://{settings.domain}"
         self._issuer = _normalize_auth0_issuer(issuer_raw)
-        self._audience = audience
-        self._jwks_client = PyJWKClient(f"https://{domain}/.well-known/jwks.json")
+        self._audience = settings.audience
+        self._jwks_client = PyJWKClient(f"https://{settings.domain}/.well-known/jwks.json")
 
     def validate_access_token(self, token: str) -> dict[str, Any]:
         try:

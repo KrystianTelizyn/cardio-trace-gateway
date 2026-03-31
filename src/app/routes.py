@@ -52,10 +52,11 @@ async def callback(
     return CallbackResponse(success=True, message="Authentication successful, tokens set in cookie.")
 
 
-@router.get("/logout", response_model=LogoutResponse)
+@router.post("/logout", response_model=LogoutResponse)
 async def logout(
     request: Request,
     response: Response,
+    _csrf_ok: None = Depends(csrf_graphql),
     gateway: Gateway = Depends(get_gateway),
 ) -> LogoutResponse:
     logout_url = await gateway.auth.process_logout(
@@ -79,10 +80,8 @@ async def invite(
 ) -> InviteResponse:
     if payload.role == InviteRole.patient:
         invite_url = gateway.invites.invite_patient(str(payload.email))
-    elif payload.role == InviteRole.doctor:
-        invite_url = gateway.invites.invite_doctor(str(payload.email))
     else:
-        raise HTTPException(status_code=400, detail="Invalid role.")
+        invite_url = gateway.invites.invite_doctor(str(payload.email))
     return InviteResponse(
         invite_url=invite_url,
         message="User invited. Follow the link to complete the invitation.",

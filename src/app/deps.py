@@ -12,7 +12,7 @@ def csrf_api(request: Request, gateway: Gateway = Depends(get_gateway)) -> None:
     """Token-only CSRF validation for state-changing REST proxy requests."""
     gateway.auth.validate_csrf_token(
         request,
-        allowed_methods={"POST", "PUT", "PATCH", "DELETE"},
+        csrf_protected_methods={"POST", "PUT", "PATCH", "DELETE"},
     )
 
 
@@ -20,7 +20,7 @@ def csrf_graphql(request: Request, gateway: Gateway = Depends(get_gateway)) -> N
     """Token-only CSRF validation for GraphQL POST requests."""
     gateway.auth.validate_csrf_token(
         request,
-        allowed_methods={"POST"},
+        csrf_protected_methods={"POST"},
     )
 
 

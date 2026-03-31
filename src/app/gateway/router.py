@@ -2,6 +2,8 @@ import httpx
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.config import RouterSettings
+
 # Hop-by-hop and other headers we do not forward back to the client
 _RESPONSE_DROP = frozenset(
     {
@@ -36,9 +38,10 @@ def _merge_query_into_url(base_url: str, query: str) -> str:
 
 
 class GatewayRouter:
-    def __init__(self, inner_api_base: str, hasura_graphql_url: str) -> None:
-        self._inner_api_base = inner_api_base.rstrip("/")
-        self._hasura_graphql_url = hasura_graphql_url.rstrip("/")
+    def __init__(self, settings: RouterSettings) -> None:
+        self._settings = settings
+        self._inner_api_base = settings.inner_auth_service_url.rstrip("/")
+        self._hasura_graphql_url = settings.hasura_graphql_url.rstrip("/")
         self._http = httpx.AsyncClient()
 
     async def aclose(self) -> None:

@@ -48,8 +48,8 @@ class FakeAuth:
     def clear_csrf_token_cookie(self, response) -> None:
         response.delete_cookie("gateway_csrf")
 
-    def validate_csrf_token(self, request, allowed_methods: set[str]) -> None:
-        if request.method not in allowed_methods:
+    def validate_csrf_token(self, request, csrf_protected_methods: set[str]) -> None:
+        if request.method not in csrf_protected_methods:
             return
         cookie_token = request.cookies.get("gateway_csrf")
         header_token = request.headers.get("X-CSRF-Token")

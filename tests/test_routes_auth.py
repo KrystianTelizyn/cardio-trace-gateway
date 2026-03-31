@@ -26,9 +26,18 @@ def test_callback_sets_csrf_cookie(client):
 
 
 def test_logout_clears_csrf_cookie(client):
-    response = client.get("/logout")
+    client.cookies.set("gateway_csrf", "csrf-token")
+    response = client.post(
+        "/logout",
+        headers={"X-CSRF-Token": "csrf-token"},
+    )
     assert response.status_code == 200
     assert "gateway_csrf=" in response.headers.get("set-cookie", "")
+
+
+def test_logout_rejects_without_csrf(client):
+    response = client.post("/logout")
+    assert response.status_code == 403
 
 
 def test_invite_doctor_success(client):

@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 from fastapi import Request, Response
 
-from app.config import Config
+from app.config import AuthSettings
 from app.exceptions import AuthServiceException, CsrfValidationError
 from auth0_fastapi.stores import CookieTransactionStore, StatelessStateStore
 from auth0_server_python.auth_server.server_client import ServerClient
@@ -20,15 +20,19 @@ class GatewayAuth:
     _CSRF_HEADER_NAME = "X-CSRF-Token"
     _CSRF_TOKEN_TTL_SEC = 3600
 
-    def __init__(self) -> None:
+    def __init__(self, settings: AuthSettings) -> None:
+        """
+        settings: Auth0 settings including optional frontend_url for CSRF cookie decisions.
+        """
+        self._settings = settings
         self._server_client = ServerClient(
-            domain=Config.AUTH0_DOMAIN,
-            client_id=Config.AUTH0_CLIENT_ID,
-            client_secret=Config.AUTH0_CLIENT_SECRET,
-            redirect_uri=Config.AUTH0_REDIRECT_URI,
-            secret=Config.AUTH0_SECRET,
-            transaction_store=CookieTransactionStore(secret=Config.AUTH0_SECRET),
-            state_store=StatelessStateStore(secret=Config.AUTH0_SECRET),
+            domain=settings.domain,
+            client_id=settings.client_id,
+            client_secret=settings.client_secret,
+            redirect_uri=settings.redirect_uri,
+            secret=settings.secret,
+            transaction_store=CookieTransactionStore(secret=settings.secret),
+            state_store=StatelessStateStore(secret=settings.secret),
         )
 
     async def get_access_token_from_session(
@@ -37,7 +41,7 @@ class GatewayAuth:
         """Return the API access token from the Auth0 cookie session (refreshing if needed)."""
         return await self._server_client.get_access_token(
             store_options={"request": request, "response": response},
-            audience=Config.AUTH0_AUDIENCE,
+            audience=self._settings.audience,
         )
 
     async def get_session_from_request(
@@ -57,17 +61,17 @@ class GatewayAuth:
     ) -> str:
         authorization_params = {
             "response_type": "code",
-            "client_id": Config.AUTH0_CLIENT_ID,
-            "redirect_uri": Config.AUTH0_REDIRECT_URI,
-            "scope": Config.AUTH0_SCOPE,
-            "audience": Config.AUTH0_AUDIENCE,
+            "client_id": self._settings.client_id,
+            "redirect_uri": self._settings.redirect_uri,
+            "scope": self._settings.scope,
+            "audience": self._settings.audience,
         }
         if invitation and organization and organization_name:
             authorization_params["invitation"] = invitation
             authorization_params["organization"] = organization
             authorization_params["organization_name"] = organization_name
         options = StartInteractiveLoginOptions(authorization_params=authorization_params)
-        print(options)
+
         try:
             callback_url = await self._server_client.start_interactive_login(
                 store_options=store_options,
@@ -89,7 +93,6 @@ class GatewayAuth:
                 url=callback_url,
                 store_options=store_options,
             )
-            print(result.get("state_data"))
             return {"success": True}
         except Auth0Error as e:
             raise AuthServiceException("Failed to process callback") from e
@@ -100,7 +103,7 @@ class GatewayAuth:
 
         On localhost/dev we default to insecure to avoid breaking local testing.
         """
-        frontend_url = Config.FRONTEND_URL or ""
+        frontend_url = self._settings.frontend_url or ""
         if not frontend_url:
             return False
         return urlparse(frontend_url).scheme == "https"
@@ -109,9 +112,6 @@ class GatewayAuth:
         """
         Create/update the gateway-owned CSRF token cookie after successful login.
 
-        Note: this repo currently only sets/clears the cookie; request validation
-        (matching header <-> cookie and/or Origin/Referer checks) should be added
-        on unsafe gateway routes separately.
         """
         csrf_token = secrets.token_urlsafe(32)
         response.set_cookie(
@@ -132,14 +132,14 @@ class GatewayAuth:
             path="/",
         )
 
-    def validate_csrf_token(self, request: Request, allowed_methods: set[str]) -> None:
+    def validate_csrf_token(self, request: Request, csrf_protected_methods: set[str]) -> None:
         """
         Token-only CSRF mitigation for gateway proxy routes.
 
         For unsafe methods, requires `gateway_csrf` cookie value to match the
         `X-CSRF-Token` header (double-submit pattern).
         """
-        if request.method not in allowed_methods:
+        if request.method not in csrf_protected_methods:
             return
 
         cookie_token = request.cookies.get(self._CSRF_COOKIE_NAME)

@@ -2,22 +2,22 @@ from app.exceptions import CsrfValidationError, JwtValidationError
 
 
 def test_rest_proxy_success(client):
+    client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
         "/api/users?active=true",
         content=b'{"k":"v"}',
         headers={"X-CSRF-Token": "csrf-token"},
-        cookies={"gateway_csrf": "csrf-token"},
     )
     assert response.status_code == 200
     assert "api:users:example-access-token" in response.text
 
 
 def test_graphql_proxy_success(client):
+    client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
         "/graphql",
         content=b'{"query":"{ me { id } }"}',
         headers={"X-CSRF-Token": "csrf-token"},
-        cookies={"gateway_csrf": "csrf-token"},
     )
     assert response.status_code == 200
     assert "graphql:example-access-token" in response.text
@@ -40,11 +40,11 @@ def test_graphql_proxy_jwt_failure_maps_to_401(client, gateway, mocker):
         "validate_access_token",
         side_effect=JwtValidationError("bad token"),
     )
+    client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
         "/graphql",
         content=b'{"query":"{ me { id } }"}',
         headers={"X-CSRF-Token": "csrf-token"},
-        cookies={"gateway_csrf": "csrf-token"},
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or expired access token"

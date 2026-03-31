@@ -1,23 +1,25 @@
 import pytest
 
+from app.config import InviteSettings
 from app.exceptions import InviteException
 from app.gateway.invites import Invites
 from auth0.management.core import ApiError
 
 
 @pytest.fixture
-def invites(mocker, monkeypatch):
-    monkeypatch.setattr("app.gateway.invites.Config.AUTH0_DOMAIN", "tenant.auth0.com")
-    monkeypatch.setattr("app.gateway.invites.Config.API_EXPLORER_CLIENT_ID", "id")
-    monkeypatch.setattr("app.gateway.invites.Config.API_EXPLORER_CLIENT_SECRET", "secret")
-    monkeypatch.setattr("app.gateway.invites.Config.PATIENT_ROLE_ID", "role_patient")
-    monkeypatch.setattr("app.gateway.invites.Config.DOCTOR_ROLE_ID", "role_doctor")
-    monkeypatch.setattr("app.gateway.invites.Config.CARDIO_TRACE_CLINIC_ID", "org_1")
-    monkeypatch.setattr("app.gateway.invites.Config.AUTH0_CLIENT_ID", "auth0_client")
-    monkeypatch.setattr("app.gateway.invites.Config.CARDIO_TRACE_APPLICATION_LOGIN_URI", "https://login.example.com")
-    monkeypatch.setattr("app.gateway.invites.Config.INVITE_URL_REPLACEMENT", "http://localhost:3000/login")
+def invites(mocker):
+    settings = InviteSettings(
+        cardio_trace_clinic_id="org_1",
+        patient_role_id="role_patient",
+        doctor_role_id="role_doctor",
+        api_explorer_client_id="id",
+        api_explorer_client_secret="secret",
+        auth0_client_id="auth0_client",
+        cardio_trace_application_login_uri="https://login.example.com",
+        invite_url_replacement="http://localhost:3000/login",
+    )
     mgmt = mocker.patch("app.gateway.invites.ManagementClient", autospec=True)
-    service = Invites()
+    service = Invites(settings)
     return service, mgmt.return_value
 
 
@@ -36,3 +38,40 @@ def test_invite_user_maps_api_error(invites):
     mgmt_client.organizations.invitations.create.side_effect = ApiError(status_code=400, body={"message": "boom"})
     with pytest.raises(InviteException):
         service.invite_doctor("doctor@example.com")
+
+
+def test_invite_user_calls_management_client_with_expected_params(invites, mocker):
+    service, mgmt_client = invites
+    response = mocker.Mock()
+    response.invitation_url = "https://login.example.com/invite?ticket=xyz"
+    mgmt_client.organizations.invitations.create.return_value = response
+
+    service.invite_user("member@example.com", role_id="role_custom", ttl_sec=900)
+
+    mgmt_client.organizations.invitations.create.assert_called_once_with(
+        id="org_1",
+        inviter={"name": "Cardio Trace Admin"},
+        invitee={"email": "member@example.com"},
+        client_id="auth0_client",
+        ttl_sec=900,
+        roles=["role_custom"],
+        send_invitation_email=False,
+    )
+
+
+def test_invite_patient_uses_patient_role_id_from_settings(invites, mocker):
+    service, _ = invites
+    invite_user_spy = mocker.patch.object(service, "invite_user", return_value="ignored")
+
+    service.invite_patient("patient@example.com")
+
+    invite_user_spy.assert_called_once_with("patient@example.com", "role_patient", 3600)
+
+
+def test_invite_doctor_uses_doctor_role_id_from_settings(invites, mocker):
+    service, _ = invites
+    invite_user_spy = mocker.patch.object(service, "invite_user", return_value="ignored")
+
+    service.invite_doctor("doctor@example.com")
+
+    invite_user_spy.assert_called_once_with("doctor@example.com", "role_doctor", 3600)

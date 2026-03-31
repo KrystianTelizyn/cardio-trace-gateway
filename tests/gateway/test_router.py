@@ -1,5 +1,6 @@
 from starlette.requests import Request
 
+from app.config import RouterSettings
 from app.gateway.router import GatewayRouter, _merge_query_into_url
 
 
@@ -29,7 +30,11 @@ def test_merge_query_into_url():
 
 
 def test_build_upstream_headers_allowlist():
-    router = GatewayRouter("https://inner.example.com", "https://hasura.example.com/graphql")
+    settings = RouterSettings(
+        inner_auth_service_url="https://inner.example.com",
+        hasura_graphql_url="https://hasura.example.com/graphql",
+    )
+    router = GatewayRouter(settings)
     request = _make_request(
         "GET",
         "/api/users",
@@ -46,7 +51,11 @@ def test_build_upstream_headers_allowlist():
 
 
 async def test_api_forwards_request_and_filters_response_headers(mocker):
-    router = GatewayRouter("https://inner.example.com", "https://hasura.example.com/graphql")
+    settings = RouterSettings(
+        inner_auth_service_url="https://inner.example.com",
+        hasura_graphql_url="https://hasura.example.com/graphql",
+    )
+    router = GatewayRouter(settings)
     request = _make_request(
         "POST",
         "/api/users",
@@ -58,16 +67,24 @@ async def test_api_forwards_request_and_filters_response_headers(mocker):
     upstream.content = b'{"ok":true}'
     upstream.status_code = 201
     upstream.headers = {"content-type": "application/json", "transfer-encoding": "chunked"}
-    mocker.patch.object(router._http, "request", return_value=upstream)
+    request_mock = mocker.patch.object(router._http, "request", return_value=upstream)
 
     response = await router.api(request, "users", "token-2")
     assert response.status_code == 201
     assert response.headers.get("transfer-encoding") is None
     assert response.body == b'{"ok":true}'
+    request_mock.assert_called_once()
+    assert request_mock.call_args.args[0] == "POST"
+    assert request_mock.call_args.args[1] == "https://inner.example.com/api/users?active=true"
+    assert request_mock.call_args.kwargs["content"] == b'{"x":1}'
 
 
 async def test_graphql_forwards_to_hasura(mocker):
-    router = GatewayRouter("https://inner.example.com", "https://hasura.example.com/graphql")
+    settings = RouterSettings(
+        inner_auth_service_url="https://inner.example.com",
+        hasura_graphql_url="https://hasura.example.com/graphql",
+    )
+    router = GatewayRouter(settings)
     request = _make_request("POST", "/graphql", body=b'{"query":"{x}"}')
     upstream = mocker.Mock()
     upstream.content = b'{"data":{"x":1}}'
@@ -81,3 +98,4 @@ async def test_graphql_forwards_to_hasura(mocker):
     request_mock.assert_called_once()
     called_url = request_mock.call_args.args[1]
     assert called_url == "https://hasura.example.com/graphql"
+    assert request_mock.call_args.kwargs["content"] == b'{"query":"{x}"}'
