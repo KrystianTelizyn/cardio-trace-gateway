@@ -9,6 +9,7 @@ from auth0.management.core import ApiError
 @pytest.fixture
 def invites(mocker):
     settings = InviteSettings(
+        auth0_domain="tenant.auth0.com",
         cardio_trace_clinic_id="org_1",
         patient_role_id="role_patient",
         doctor_role_id="role_doctor",

@@ -8,7 +8,7 @@ class Invites:
     def __init__(self, settings: InviteSettings):
         self._settings = settings
         self.management_client = ManagementClient(
-            domain=settings.cardio_trace_clinic_id,  # domain is often Auth0 tenant; adjust when wiring
+            domain=settings.auth0_domain,
             client_id=settings.api_explorer_client_id,
             client_secret=settings.api_explorer_client_secret,
         )

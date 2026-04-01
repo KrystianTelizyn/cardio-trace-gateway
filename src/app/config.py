@@ -63,6 +63,7 @@ class InviteSettings:
     Settings for Auth0 Management / invitation flows (`Invites`).
     """
 
+    auth0_domain: str
     cardio_trace_clinic_id: str
     patient_role_id: str
     doctor_role_id: str
@@ -76,6 +77,7 @@ class InviteSettings:
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "InviteSettings":
         env = Env(environ)
         return cls(
+            auth0_domain=env("AUTH0_DOMAIN"),
             cardio_trace_clinic_id=env("CARDIO_TRACE_CLINIC_ID"),
             patient_role_id=env("PATIENT_ROLE_ID"),
             doctor_role_id=env("DOCTOR_ROLE_ID"),

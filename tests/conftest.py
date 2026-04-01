@@ -123,6 +123,57 @@ class FakeGateway:
         self.router = FakeRouter()
         self.invites = FakeInvites()
 
+    @staticmethod
+    def _roles_from_claims(claims: dict[str, Any]) -> list[str]:
+        if isinstance(claims.get("roles"), list):
+            return [str(role) for role in claims["roles"]]
+        for key, value in claims.items():
+            if key.endswith("/roles") and isinstance(value, list):
+                return [str(role) for role in value]
+        return []
+
+    async def get_me(self, request, response, access_token: str) -> dict[str, Any]:
+        claims = self.jwt.validate_access_token(access_token)
+        session = await self.auth.get_session_from_request(request, response)
+        identity = self.auth.get_identity_claims_from_session(session)
+        return {
+            "sub": claims.get("sub"),
+            "org_id": claims.get("org_id"),
+            "scope": claims.get("scope"),
+            "permissions": [str(p) for p in claims.get("permissions", []) if isinstance(p, str)],
+            "roles": self._roles_from_claims(claims),
+            "email": identity.get("email"),
+            "name": identity.get("name"),
+            "picture": identity.get("picture"),
+        }
+
+    async def complete_callback(self, request, response) -> None:
+        await self.auth.process_callback(
+            callback_url=str(request.url),
+            store_options={"request": request, "response": response},
+        )
+        self.auth.set_csrf_token_cookie(response)
+
+    async def logout_user(self, request, response) -> str:
+        logout_url = await self.auth.process_logout(
+            store_options={"request": request, "response": response},
+        )
+        self.auth.clear_csrf_token_cookie(response)
+        return logout_url
+
+    def create_invite(self, email: str, role: str) -> str:
+        if role == "patient":
+            return self.invites.invite_patient(email)
+        return self.invites.invite_doctor(email)
+
+    async def proxy_api(self, request, proxy_path: str, access_token: str):
+        self.jwt.validate_access_token(access_token)
+        return await self.router.api(request, proxy_path, access_token)
+
+    async def proxy_graphql(self, request, access_token: str):
+        self.jwt.validate_access_token(access_token)
+        return await self.router.graphql(request, access_token)
+
     def ensure_ready(self) -> dict[str, bool]:
         checks = {
             "gateway": True,

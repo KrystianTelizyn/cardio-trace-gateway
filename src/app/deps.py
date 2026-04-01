@@ -1,9 +1,12 @@
 from fastapi import Depends, HTTPException, Request, Response
+from fastapi.security import APIKeyHeader
 
 from app.exceptions import GatewayNotReadyError
 from app.gateway import Gateway
 from auth0_server_python.error import AccessTokenError
 
+
+csrf_header_scheme = APIKeyHeader(name="X-CSRF-Token", auto_error=False)
 
 def get_gateway(request: Request) -> Gateway:
     gateway = getattr(request.app.state, "gateway", None)
