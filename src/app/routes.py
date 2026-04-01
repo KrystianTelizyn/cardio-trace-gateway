@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.deps import get_gateway, require_cookie_access_token, csrf_api, csrf_graphql
@@ -8,12 +8,59 @@ from app.schemas import (
     InviteRequest,
     InviteResponse,
     InviteRole,
+    MeResponse,
+    HealthResponse,
+    ReadinessResponse,
     LoginUrlRequest,
     LoginUrlResponse,
     LogoutResponse,
 )
 
 router = APIRouter()
+
+
+def _roles_from_claims(claims: dict) -> list[str]:
+    if not isinstance(claims, dict):
+        return []
+    if isinstance(claims.get("roles"), list):
+        return [str(role) for role in claims["roles"]]
+    for key, value in claims.items():
+        if key.endswith("/roles") and isinstance(value, list):
+            return [str(role) for role in value]
+    return []
+
+
+@router.get("/me", response_model=MeResponse)
+async def me(
+    request: Request,
+    response: Response,
+    access_token: str = Depends(require_cookie_access_token),
+    gateway: Gateway = Depends(get_gateway),
+) -> MeResponse:
+    claims = gateway.jwt.validate_access_token(access_token)
+    session = await gateway.auth.get_session_from_request(request, response)
+    identity = gateway.auth.get_identity_claims_from_session(session)
+    return MeResponse(
+        sub=claims.get("sub"),
+        org_id=claims.get("org_id"),
+        scope=claims.get("scope"),
+        permissions=[str(p) for p in claims.get("permissions", []) if isinstance(p, str)],
+        roles=_roles_from_claims(claims),
+        email=identity.get("email"),
+        name=identity.get("name"),
+        picture=identity.get("picture"),
+    )
+
+
+@router.get("/healthz", response_model=HealthResponse)
+async def healthz() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@router.get("/readyz", response_model=ReadinessResponse)
+async def readyz(gateway: Gateway = Depends(get_gateway)) -> ReadinessResponse:
+    checks = gateway.ensure_ready()
+    return ReadinessResponse(status="ok", checks=checks)
 
 
 @router.get("/url/auth0", response_model=LoginUrlResponse)

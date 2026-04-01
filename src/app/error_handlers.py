@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from app.exceptions import (
     AuthServiceException,
     CsrfValidationError,
+    GatewayNotReadyError,
     InviteException,
     JwtValidationError,
 )
@@ -48,4 +49,19 @@ async def csrf_validation_error_handler(
     return JSONResponse(
         status_code=403,
         content={"detail": exc.message},
+    )
+
+
+async def gateway_not_ready_error_handler(
+    _request: Request,
+    exc: GatewayNotReadyError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "status": "not_ready",
+                "checks": exc.checks,
+            }
+        },
     )

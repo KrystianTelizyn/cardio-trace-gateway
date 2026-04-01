@@ -36,3 +36,23 @@ class InviteRequest(BaseModel):
 class InviteResponse(BaseModel):
     invite_url: str
     message: str
+
+
+class MeResponse(BaseModel):
+    sub: str | None = None
+    org_id: str | None = None
+    scope: str | None = None
+    permissions: list[str] = []
+    roles: list[str] = []
+    email: str | None = None
+    name: str | None = None
+    picture: str | None = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    checks: dict[str, bool]

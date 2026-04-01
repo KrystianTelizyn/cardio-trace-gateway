@@ -1,6 +1,7 @@
 from typing import Self
 
 from app.config import AppSettings
+from app.exceptions import GatewayNotReadyError
 from app.gateway.auth import GatewayAuth
 from app.gateway.jwt import GatewayJwt
 from app.gateway.router import GatewayRouter
@@ -34,3 +35,18 @@ class Gateway:
 
     async def aclose(self) -> None:
         await self.router.aclose()
+
+    def readiness_checks(self) -> dict[str, bool]:
+        return {
+            "gateway": True,
+            "auth": hasattr(self, "auth"),
+            "jwt": hasattr(self, "jwt"),
+            "router": hasattr(self, "router"),
+            "invites": hasattr(self, "invites"),
+        }
+
+    def ensure_ready(self) -> dict[str, bool]:
+        checks = self.readiness_checks()
+        if not all(checks.values()):
+            raise GatewayNotReadyError(checks=checks)
+        return checks

@@ -21,3 +21,11 @@ class CsrfValidationError(GatewayExceptionBase):
 class ConfigError(GatewayExceptionBase):
     """Raised when required configuration is missing or invalid."""
     pass
+
+
+class GatewayNotReadyError(GatewayExceptionBase):
+    """Raised when gateway readiness checks fail."""
+
+    def __init__(self, checks: dict[str, bool]):
+        super().__init__("Gateway is not ready")
+        self.checks = checks

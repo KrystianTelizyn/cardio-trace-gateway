@@ -3,6 +3,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Request, Response
+import jwt as pyjwt
 
 from app.config import AuthSettings
 from app.exceptions import AuthServiceException, CsrfValidationError
@@ -51,6 +52,46 @@ class GatewayAuth:
         return await self._server_client.get_session(
             store_options={"request": request, "response": response},
         )
+
+    def get_identity_claims_from_session(self, session: Any) -> dict[str, str | None]:
+        """
+        Return normalized identity fields from Auth0 session data.
+
+        Prefer already-parsed `user` claims from session state; when unavailable,
+        decode `id_token` without signature verification as a best-effort fallback.
+        """
+        claims: dict[str, Any] = {}
+        if isinstance(session, dict):
+            user = session.get("user")
+            if isinstance(user, dict):
+                claims = user
+            elif hasattr(user, "model_dump"):
+                claims = user.model_dump()
+
+            if not claims:
+                id_token = session.get("id_token")
+                if isinstance(id_token, str) and id_token:
+                    try:
+                        decoded = pyjwt.decode(
+                            id_token,
+                            options={
+                                "verify_signature": False,
+                                "verify_exp": False,
+                                "verify_aud": False,
+                                "verify_iss": False,
+                            },
+                            algorithms=["RS256", "HS256", "none"],
+                        )
+                        if isinstance(decoded, dict):
+                            claims = decoded
+                    except pyjwt.PyJWTError:
+                        claims = {}
+
+        return {
+            "email": claims.get("email"),
+            "name": claims.get("name"),
+            "picture": claims.get("picture"),
+        }
 
     async def build_login_url(
         self,

@@ -1,11 +1,23 @@
 from fastapi import Depends, HTTPException, Request, Response
 
+from app.exceptions import GatewayNotReadyError
 from app.gateway import Gateway
 from auth0_server_python.error import AccessTokenError
 
 
 def get_gateway(request: Request) -> Gateway:
-    return request.app.state.gateway
+    gateway = getattr(request.app.state, "gateway", None)
+    if gateway is None:
+        raise GatewayNotReadyError(
+            checks={
+                "gateway": False,
+                "auth": False,
+                "jwt": False,
+                "router": False,
+                "invites": False,
+            }
+        )
+    return gateway
 
 
 def csrf_api(request: Request, gateway: Gateway = Depends(get_gateway)) -> None:
