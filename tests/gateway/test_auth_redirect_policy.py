@@ -36,6 +36,14 @@ def test_normalize_return_to_enforces_same_origin_or_relative_path(auth_redirect
     assert auth_redirect_policy.normalize_return_to(input_return_to) == expected
 
 
+def test_build_frontend_absolute_url(auth_redirect_policy):
+    assert auth_redirect_policy.build_frontend_absolute_url("/") == "https://frontend.example.com/"
+    assert auth_redirect_policy.build_frontend_absolute_url("/login") == "https://frontend.example.com/login"
+    assert auth_redirect_policy.build_frontend_absolute_url("/path?q=1") == (
+        "https://frontend.example.com/path?q=1"
+    )
+
+
 def test_build_callback_success_redirect_url(auth_redirect_policy):
     url = auth_redirect_policy.build_callback_success_redirect_url("/patients?tab=active")
     assert url == "https://frontend.example.com/auth/callback/success?next=%2Fpatients%3Ftab%3Dactive"

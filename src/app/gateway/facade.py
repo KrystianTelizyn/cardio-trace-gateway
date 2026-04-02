@@ -99,12 +99,18 @@ class Gateway:
         )
         return success_redirect
 
-    async def logout_user(self, request: Request, response: Response) -> str:
+    async def logout_user(
+        self,
+        request: Request,
+        response: Response,
+        return_to: str | None = None,
+    ) -> str:
         logout_url = await self.auth.process_logout(
             store_options={
                 "request": request,
                 "response": response,
             },
+            return_to=return_to,
         )
         self.auth.clear_csrf_token_cookie(response)
         return logout_url

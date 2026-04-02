@@ -52,6 +52,20 @@ def test_logout_clears_csrf_cookie(client):
     assert "gateway_csrf=" in response.headers.get("set-cookie", "")
 
 
+def test_logout_forwards_return_to_to_gateway(client, gateway, mocker):
+    spy = mocker.AsyncMock(return_value="https://auth.example.com/logout")
+    mocker.patch.object(gateway, "logout_user", spy)
+    client.cookies.set("gateway_csrf", "csrf-token")
+    response = client.post(
+        "/logout",
+        json={"return_to": "/home"},
+        headers={"X-CSRF-Token": "csrf-token"},
+    )
+    assert response.status_code == 200
+    spy.assert_called_once()
+    assert spy.call_args.kwargs["return_to"] == "/home"
+
+
 def test_logout_rejects_without_csrf(client):
     response = client.post("/logout")
     assert response.status_code == 403

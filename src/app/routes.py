@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Response, Security
+from fastapi import APIRouter, Body, Depends, Request, Response, Security
 from fastapi.responses import JSONResponse
 from fastapi.responses import RedirectResponse
 
@@ -12,6 +12,7 @@ from app.schemas import (
     ReadinessResponse,
     LoginUrlRequest,
     LoginUrlResponse,
+    LogoutRequest,
     LogoutResponse,
 )
 
@@ -71,15 +72,19 @@ async def callback(
 async def logout(
     request: Request,
     response: Response,
+    payload: LogoutRequest | None = Body(default=None),
     _csrf_doc: str | None = Security(csrf_header_scheme),
     _csrf_ok: None = Depends(csrf_graphql),
     gateway: Gateway = Depends(get_gateway),
 ) -> LogoutResponse:
-    logout_url = await gateway.logout_user(request, response)
+    return_to = payload.return_to if payload is not None else None
+    logout_url = await gateway.logout_user(
+        request, response, return_to=return_to
+    )
     return LogoutResponse(
         logout=True,
         logout_url=logout_url,
-        message="Logout successful.",
+        message="Logout successful. Sesion invalidated. Follow the link to complete the logout.",
     )
 
 
@@ -94,12 +99,8 @@ async def invite(
         message="User invited. Follow the link to complete the invitation.",
     )
 
-
-_GATEWAY_HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
-
-
-@router.api_route("/api/{proxy_path:path}", methods=_GATEWAY_HTTP_METHODS, tags=["REST"])
-async def gateway_rest_proxy(
+@router.get("/api/{proxy_path:path}", tags=["REST"])
+async def gateway_rest_proxy_get(
     request: Request,
     proxy_path: str = "",
     access_token: str = Depends(require_cookie_access_token),
@@ -109,9 +110,62 @@ async def gateway_rest_proxy(
 ):
     return await gateway.proxy_api(request, proxy_path, access_token)
 
+@router.post("/api/{proxy_path:path}", tags=["REST"])
+async def gateway_rest_proxy_post(
+    request: Request,
+    proxy_path: str = "",
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, proxy_path, access_token)
 
-@router.api_route("/graphql", methods=["GET", "POST"], tags=["GraphQL"])
-async def gateway_graphql(
+@router.put("/api/{proxy_path:path}", tags=["REST"])
+async def gateway_rest_proxy_put(
+    request: Request,
+    proxy_path: str = "",
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, proxy_path, access_token)
+
+@router.patch("/api/{proxy_path:path}", tags=["REST"])
+async def gateway_rest_proxy_patch(
+    request: Request,
+    proxy_path: str = "",
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, proxy_path, access_token)
+
+@router.delete("/api/{proxy_path:path}", tags=["REST"])
+async def gateway_rest_proxy_delete(
+    request: Request,
+    proxy_path: str = "",
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, proxy_path, access_token)
+
+@router.get("/graphql", tags=["GraphQL"])
+async def gateway_graphql_get(
+    request: Request,
+    access_token: str = Depends(require_cookie_access_token),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_graphql),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_graphql(request, access_token)
+
+@router.post("/graphql", tags=["GraphQL"])
+async def gateway_graphql_post(
     request: Request,
     access_token: str = Depends(require_cookie_access_token),
     _csrf_doc: str | None = Security(csrf_header_scheme),

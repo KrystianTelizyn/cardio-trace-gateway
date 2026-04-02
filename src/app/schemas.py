@@ -18,6 +18,13 @@ class CallbackResponse(BaseModel):
     success: bool
     message: str
 
+
+class LogoutRequest(BaseModel):
+    """Optional body for POST /logout; return_to is normalized server-side."""
+
+    return_to: str | None = None
+
+
 class LogoutResponse(BaseModel):
     logout: bool
     logout_url: str

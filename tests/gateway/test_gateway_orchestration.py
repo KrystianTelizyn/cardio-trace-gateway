@@ -52,7 +52,7 @@ def _settings() -> AppSettings:
             invite_url_replacement="http://localhost:3000/login",
         ),
         router=RouterSettings(
-            inner_auth_service_url="https://inner.example.com",
+            inner_api_base_url="https://inner.example.com",
             hasura_graphql_url="https://hasura.example.com/graphql",
         ),
         jwt=JwtSettings(
@@ -145,13 +145,17 @@ async def test_callback_redirect_response_error_raises_dedicated_exception(gatew
         await gw.callback_redirect_response(request)
 
 
+@pytest.mark.parametrize("return_to", [None, "/home"])
 @pytest.mark.asyncio
-async def test_logout_user_clears_csrf_cookie(gateway):
+async def test_logout_user_clears_csrf_cookie(gateway, return_to):
     gw, auth, _, _, _ = gateway
     auth.process_logout = AsyncMock(return_value="https://auth.example.com/logout")
     response = Response()
-    logout_url = await gw.logout_user(_make_request(), response)
+    logout_url = await gw.logout_user(_make_request(), response, return_to=return_to)
     assert logout_url == "https://auth.example.com/logout"
+    auth.process_logout.assert_called_once()
+    call_kwargs = auth.process_logout.call_args.kwargs
+    assert call_kwargs["return_to"] == return_to
     auth.clear_csrf_token_cookie.assert_called_once_with(response)
 
 

@@ -90,3 +90,14 @@ class AuthRedirectPolicy:
             return None
         return f"{parsed.scheme}://{parsed.netloc}".lower()
 
+    def build_frontend_absolute_url(self, path_with_query: str) -> str:
+        """
+        Join configured frontend base URL with a normalized path (and optional query).
+
+        Used for Auth0 logout `returnTo`, which must be an absolute URL allowlisted in Auth0.
+        """
+        base = (self.frontend_url or "").rstrip("/")
+        if not path_with_query.startswith("/"):
+            path_with_query = f"/{path_with_query}"
+        return f"{base}{path_with_query}"
+

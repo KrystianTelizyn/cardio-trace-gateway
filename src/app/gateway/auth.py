@@ -9,7 +9,7 @@ from app.exceptions import AuthCallbackRedirectException, AuthServiceException, 
 from app.gateway.auth_redirects import AuthRedirectPolicy
 from auth0_fastapi.stores import CookieTransactionStore, StatelessStateStore
 from auth0_server_python.auth_server.server_client import ServerClient
-from auth0_server_python.auth_types import StartInteractiveLoginOptions
+from auth0_server_python.auth_types import LogoutOptions, StartInteractiveLoginOptions
 from auth0_server_python.error import Auth0Error
 
 
@@ -128,9 +128,18 @@ class GatewayAuth:
         except Auth0Error as e:
             raise AuthServiceException("Failed to build login URL") from e
 
-    async def process_logout(self, store_options: dict) -> str:
+    async def process_logout(
+        self,
+        store_options: dict,
+        return_to: str | None = None,
+    ) -> str:
+        normalized = self._redirect_policy.normalize_return_to(return_to)
+        logout_return_to = self._redirect_policy.build_frontend_absolute_url(normalized)
         try:
-            return await self._server_client.logout(store_options=store_options)
+            return await self._server_client.logout(
+                options=LogoutOptions(return_to=logout_return_to),
+                store_options=store_options,
+            )
         except Auth0Error as e:
             raise AuthServiceException("Logout failed") from e
 
@@ -144,7 +153,6 @@ class GatewayAuth:
             raw_return_to = (
                 app_state.get(self._LOGIN_RETURN_TO_KEY) if isinstance(app_state, dict) else None
             )
-            print(f'raw_return_to: {raw_return_to}')
             return {
                 "success": True,
                 "return_to": self._redirect_policy.normalize_return_to(raw_return_to),

@@ -101,14 +101,14 @@ class RouterSettings:
     Settings for the gateway's HTTP-facing behaviour and upstream locations.
     """
 
-    inner_auth_service_url: str
+    inner_api_base_url: str
     hasura_graphql_url: str
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "RouterSettings":
         env = Env(environ)
         return cls(
-            inner_auth_service_url=env("INNER_AUTH_SERVICE_URL"),
+            inner_api_base_url=env("INNER_API_BASE_URL"),
             hasura_graphql_url=env("HASURA_GRAPHQL_URL"),
         )
 
@@ -126,14 +126,10 @@ class JwtSettings:
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "JwtSettings":
         env = Env(environ)
-        # By default, issuer falls back to https://{AUTH0_DOMAIN}/ as in the
-        # real code; that logic would live alongside this settings usage.
-        domain = env("AUTH0_DOMAIN")
-        issuer = env("AUTH0_ISSUER") or f"https://{domain}/"
         return cls(
-            domain=domain,
+            domain=env("AUTH0_DOMAIN"),
             audience=env("AUTH0_AUDIENCE"),
-            issuer=issuer,
+            issuer=env("AUTH0_ISSUER"),
         )
 
 

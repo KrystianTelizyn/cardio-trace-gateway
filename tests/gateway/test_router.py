@@ -31,7 +31,7 @@ def test_merge_query_into_url():
 
 def test_build_upstream_headers_allowlist():
     settings = RouterSettings(
-        inner_auth_service_url="https://inner.example.com",
+        inner_api_base_url="https://inner.example.com",
         hasura_graphql_url="https://hasura.example.com/graphql",
     )
     router = GatewayRouter(settings)
@@ -52,7 +52,7 @@ def test_build_upstream_headers_allowlist():
 
 async def test_api_forwards_request_and_filters_response_headers(mocker):
     settings = RouterSettings(
-        inner_auth_service_url="https://inner.example.com",
+        inner_api_base_url="https://inner.example.com",
         hasura_graphql_url="https://hasura.example.com/graphql",
     )
     router = GatewayRouter(settings)
@@ -81,7 +81,7 @@ async def test_api_forwards_request_and_filters_response_headers(mocker):
 
 async def test_graphql_forwards_to_hasura(mocker):
     settings = RouterSettings(
-        inner_auth_service_url="https://inner.example.com",
+        inner_api_base_url="https://inner.example.com",
         hasura_graphql_url="https://hasura.example.com/graphql",
     )
     router = GatewayRouter(settings)

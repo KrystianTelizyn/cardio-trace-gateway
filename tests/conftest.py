@@ -65,7 +65,11 @@ class FakeAuth:
     def error_redirect_url(self, code: str = "auth_callback_failed") -> str:
         return f"https://frontend.example.com/auth/callback/error?code={code}"
 
-    async def process_logout(self, store_options: dict) -> str:
+    async def process_logout(
+        self,
+        store_options: dict,
+        return_to: str | None = None,
+    ) -> str:
         return "https://auth.example.com/logout"
 
     def set_csrf_token_cookie(self, response) -> str:
@@ -176,9 +180,15 @@ class FakeGateway:
         )
         return success_redirect
 
-    async def logout_user(self, request, response) -> str:
+    async def logout_user(
+        self,
+        request,
+        response,
+        return_to: str | None = None,
+    ) -> str:
         logout_url = await self.auth.process_logout(
             store_options={"request": request, "response": response},
+            return_to=return_to,
         )
         self.auth.clear_csrf_token_cookie(response)
         return logout_url
