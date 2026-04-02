@@ -2,7 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from auth0_server_python.error import AccessTokenError
+
 from app.error_handlers import (
+    access_token_error_handler,
     auth_callback_redirect_exception_handler,
     auth_service_exception_handler,
     csrf_validation_error_handler,
@@ -23,6 +26,13 @@ async def test_jwt_validation_error_handler_maps_401():
     response = await jwt_validation_error_handler(None, JwtValidationError("bad"))
     assert response.status_code == 401
     assert response.body == b'{"detail":"Invalid or expired access token"}'
+
+
+@pytest.mark.asyncio
+async def test_access_token_error_handler_maps_401():
+    response = await access_token_error_handler(None, AccessTokenError("missing_token", "missing"))
+    assert response.status_code == 401
+    assert response.body == b'{"detail":"Not authenticated"}'
 
 
 @pytest.mark.asyncio

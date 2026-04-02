@@ -70,6 +70,8 @@ class GatewayRouter:
         path = "/api/" if not proxy_path else f"/api/{proxy_path}"
         query = request.url.query
         url = f"{self._inner_api_base}{path}"
+        # TBD: Additional routing logic here, e.g. to handle different paths over different services.
+        # for now, we just proxy all requests to the inner API base URL.
         url = _merge_query_into_url(url, query)
         body = await request.body()
         headers = self._build_upstream_headers(request, access_token)

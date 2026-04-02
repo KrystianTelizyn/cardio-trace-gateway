@@ -1,5 +1,4 @@
 import pytest
-from fastapi import HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -46,10 +45,8 @@ async def test_require_cookie_access_token_unauthenticated(gateway, mocker):
         "get_access_token_from_session",
         side_effect=AccessTokenError("missing_token", "missing"),
     )
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AccessTokenError):
         await require_cookie_access_token(request, response, gateway)
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "Not authenticated"
 
 
 def test_csrf_api_skips_safe_methods(gateway):

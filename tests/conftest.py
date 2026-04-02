@@ -6,7 +6,10 @@ from fastapi.testclient import TestClient
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
+from auth0_server_python.error import AccessTokenError
+
 from app.error_handlers import (
+    access_token_error_handler,
     auth_callback_redirect_exception_handler,
     auth_service_exception_handler,
     csrf_validation_error_handler,
@@ -234,6 +237,7 @@ def gateway() -> FakeGateway:
 def app(gateway: FakeGateway) -> FastAPI:
     app = FastAPI()
     app.add_exception_handler(JwtValidationError, jwt_validation_error_handler)
+    app.add_exception_handler(AccessTokenError, access_token_error_handler)
     app.add_exception_handler(AuthCallbackRedirectException, auth_callback_redirect_exception_handler)
     app.add_exception_handler(AuthServiceException, auth_service_exception_handler)
     app.add_exception_handler(InviteException, invite_exception_handler)

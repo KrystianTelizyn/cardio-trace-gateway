@@ -1,3 +1,4 @@
+from auth0_server_python.error import AccessTokenError
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
@@ -18,6 +19,17 @@ async def jwt_validation_error_handler(
     return JSONResponse(
         status_code=401,
         content={"detail": "Invalid or expired access token"},
+    )
+
+
+async def access_token_error_handler(
+    _request: Request,
+    _exc: AccessTokenError,
+) -> JSONResponse:
+    """Auth0 Server SDK: session store could not yield an access token (e.g. not logged in)."""
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Not authenticated"},
     )
 
 

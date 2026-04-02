@@ -1,9 +1,8 @@
-from fastapi import Depends, HTTPException, Request, Response
+from fastapi import Depends, Request, Response
 from fastapi.security import APIKeyHeader
 
 from app.exceptions import GatewayNotReadyError
 from app.gateway import Gateway
-from auth0_server_python.error import AccessTokenError
 
 
 csrf_header_scheme = APIKeyHeader(name="X-CSRF-Token", auto_error=False)
@@ -47,7 +46,4 @@ async def require_cookie_access_token(
     """
     Ensures the Auth0 session cookie yields a usable access token (refreshes if needed).
     """
-    try:
-        return await gateway.auth.get_access_token_from_session(request, response)
-    except AccessTokenError:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    return await gateway.auth.get_access_token_from_session(request, response)
