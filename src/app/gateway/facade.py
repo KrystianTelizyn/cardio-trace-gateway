@@ -1,6 +1,7 @@
 from typing import Any, Self
 
 from fastapi import Request, Response
+from fastapi.responses import RedirectResponse
 from starlette.responses import Response as StarletteResponse
 
 from app.config import AppSettings
@@ -76,8 +77,8 @@ class Gateway:
             "picture": identity.get("picture"),
         }
 
-    async def complete_callback(self, request: Request, response: Response) -> None:
-        await self.auth.process_callback(
+    async def complete_callback(self, request: Request, response: Response) -> str:
+        callback_result = await self.auth.process_callback(
             callback_url=str(request.url),
             store_options={
                 "request": request,
@@ -85,6 +86,18 @@ class Gateway:
             },
         )
         self.auth.set_csrf_token_cookie(response)
+        return str(callback_result.get("return_to", "/"))
+
+    async def callback_redirect_response(self, request: Request) -> RedirectResponse:
+        success_redirect = RedirectResponse(
+            url=self.auth.success_redirect_url(return_to="/"),
+            status_code=302,
+        )
+        return_to = await self.complete_callback(request, success_redirect)
+        success_redirect.headers["location"] = self.auth.success_redirect_url(
+            return_to=return_to
+        )
+        return success_redirect
 
     async def logout_user(self, request: Request, response: Response) -> str:
         logout_url = await self.auth.process_logout(
@@ -96,10 +109,11 @@ class Gateway:
         self.auth.clear_csrf_token_cookie(response)
         return logout_url
 
-    def create_invite(self, email: str, role: InviteRole) -> str:
+    def create_invite(self, email: str, role: InviteRole, return_to: str | None = None) -> str:
+        normalized_return_to = self.auth.normalize_return_to(return_to)
         if role == InviteRole.patient:
-            return self.invites.invite_patient(email)
-        return self.invites.invite_doctor(email)
+            return self.invites.invite_patient(email, normalized_return_to)
+        return self.invites.invite_doctor(email, normalized_return_to)
 
     async def proxy_api(
         self,

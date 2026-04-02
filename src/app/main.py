@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from app.config import AppSettings
 from app.error_handlers import (
+    auth_callback_redirect_exception_handler,
     auth_service_exception_handler,
     csrf_validation_error_handler,
     gateway_not_ready_error_handler,
@@ -12,6 +13,7 @@ from app.error_handlers import (
     jwt_validation_error_handler,
 )
 from app.exceptions import (
+    AuthCallbackRedirectException,
     CsrfValidationError,
     AuthServiceException,
     GatewayNotReadyError,
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(JwtValidationError, jwt_validation_error_handler)
+app.add_exception_handler(AuthCallbackRedirectException, auth_callback_redirect_exception_handler)
 app.add_exception_handler(AuthServiceException, auth_service_exception_handler)
 app.add_exception_handler(InviteException, invite_exception_handler)
 app.add_exception_handler(CsrfValidationError, csrf_validation_error_handler)

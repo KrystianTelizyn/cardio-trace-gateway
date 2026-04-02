@@ -1,7 +1,8 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.exceptions import (
+    AuthCallbackRedirectException,
     AuthServiceException,
     CsrfValidationError,
     GatewayNotReadyError,
@@ -28,6 +29,19 @@ async def auth_service_exception_handler(
     return JSONResponse(
         status_code=502,
         content={"detail": exc.message},
+    )
+
+
+async def auth_callback_redirect_exception_handler(
+    request: Request,
+    exc: AuthCallbackRedirectException,
+) -> RedirectResponse | JSONResponse:
+    gateway = getattr(request.app.state, "gateway", None)
+    if gateway is None:
+        return JSONResponse(status_code=502, content={"detail": exc.message})
+    return RedirectResponse(
+        url=gateway.auth.error_redirect_url(code=exc.code),
+        status_code=302,
     )
 
 

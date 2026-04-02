@@ -7,6 +7,7 @@ class LoginUrlRequest(BaseModel):
     invitation: str | None = None
     organization: str | None = None
     organization_name: str | None = None
+    return_to: str | None = None
 
 
 class LoginUrlResponse(BaseModel):
@@ -31,6 +32,7 @@ class InviteRole(str, Enum):
 class InviteRequest(BaseModel):
     email: EmailStr
     role: InviteRole
+    return_to: str | None = None
 
 
 class InviteResponse(BaseModel):

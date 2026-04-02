@@ -1,12 +1,12 @@
 import secrets
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import Request, Response
 import jwt as pyjwt
 
 from app.config import AuthSettings
-from app.exceptions import AuthServiceException, CsrfValidationError
+from app.exceptions import AuthCallbackRedirectException, AuthServiceException, CsrfValidationError
+from app.gateway.auth_redirects import AuthRedirectPolicy
 from auth0_fastapi.stores import CookieTransactionStore, StatelessStateStore
 from auth0_server_python.auth_server.server_client import ServerClient
 from auth0_server_python.auth_types import StartInteractiveLoginOptions
@@ -20,12 +20,14 @@ class GatewayAuth:
     _CSRF_COOKIE_NAME = "gateway_csrf"
     _CSRF_HEADER_NAME = "X-CSRF-Token"
     _CSRF_TOKEN_TTL_SEC = 3600
+    _LOGIN_RETURN_TO_KEY = "return_to"
 
     def __init__(self, settings: AuthSettings) -> None:
         """
         settings: Auth0 settings including optional frontend_url for CSRF cookie decisions.
         """
         self._settings = settings
+        self._redirect_policy = AuthRedirectPolicy.from_auth_settings(settings)
         self._server_client = ServerClient(
             domain=settings.domain,
             client_id=settings.client_id,
@@ -99,6 +101,7 @@ class GatewayAuth:
         invitation: str | None = None,
         organization: str | None = None,
         organization_name: str | None = None,
+        return_to: str | None = None,
     ) -> str:
         authorization_params = {
             "response_type": "code",
@@ -111,7 +114,10 @@ class GatewayAuth:
             authorization_params["invitation"] = invitation
             authorization_params["organization"] = organization
             authorization_params["organization_name"] = organization_name
-        options = StartInteractiveLoginOptions(authorization_params=authorization_params)
+        options = StartInteractiveLoginOptions(
+            authorization_params=authorization_params,
+            app_state={self._LOGIN_RETURN_TO_KEY: self._redirect_policy.normalize_return_to(return_to)},
+        )
 
         try:
             callback_url = await self._server_client.start_interactive_login(
@@ -134,20 +140,33 @@ class GatewayAuth:
                 url=callback_url,
                 store_options=store_options,
             )
-            return {"success": True}
+            app_state = result.get("app_state") if isinstance(result, dict) else {}
+            raw_return_to = (
+                app_state.get(self._LOGIN_RETURN_TO_KEY) if isinstance(app_state, dict) else None
+            )
+            print(f'raw_return_to: {raw_return_to}')
+            return {
+                "success": True,
+                "return_to": self._redirect_policy.normalize_return_to(raw_return_to),
+            }
         except Auth0Error as e:
-            raise AuthServiceException("Failed to process callback") from e
+            raise AuthCallbackRedirectException() from e
 
-    def _csrf_cookie_secure(self) -> bool:
+    def success_redirect_url(self, return_to: str | None) -> str:
         """
-        Keep the cookie secure in production (https frontends).
+        Frontend redirect for the successful Auth0 callback.
 
-        On localhost/dev we default to insecure to avoid breaking local testing.
+        Delegates URL building to the redirect policy.
         """
-        frontend_url = self._settings.frontend_url or ""
-        if not frontend_url:
-            return False
-        return urlparse(frontend_url).scheme == "https"
+        return self._redirect_policy.build_callback_success_redirect_url(return_to)
+
+    def error_redirect_url(self, code: str = "auth_callback_failed") -> str:
+        """
+        Frontend redirect for the failed Auth0 callback.
+
+        Delegates URL building to the redirect policy.
+        """
+        return self._redirect_policy.build_callback_error_redirect_url(code=code)
 
     def set_csrf_token_cookie(self, response: Response) -> str:
         """
@@ -160,7 +179,7 @@ class GatewayAuth:
             value=csrf_token,
             max_age=self._CSRF_TOKEN_TTL_SEC,
             httponly=False,
-            secure=self._csrf_cookie_secure(),
+            secure=self._redirect_policy.frontend_secure(),
             samesite="lax",
             path="/",
         )
@@ -188,3 +207,6 @@ class GatewayAuth:
 
         if not cookie_token or not header_token or cookie_token != header_token:
             raise CsrfValidationError("CSRF validation failed")
+
+    def normalize_return_to(self, return_to: str | None) -> str:
+        return self._redirect_policy.normalize_return_to(return_to)

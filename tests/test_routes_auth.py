@@ -1,4 +1,4 @@
-from app.exceptions import AuthServiceException, InviteException
+from app.exceptions import AuthCallbackRedirectException, AuthServiceException, InviteException
 from auth0_server_python.error import AccessTokenError
 
 
@@ -21,9 +21,25 @@ def test_login_url_auth_error_maps_to_502(client, gateway, mocker):
 
 
 def test_callback_sets_csrf_cookie(client):
-    response = client.get("/callback")
-    assert response.status_code == 200
+    response = client.get("/callback", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"].startswith(
+        "https://frontend.example.com/auth/callback/success"
+    )
     assert "gateway_csrf=csrf-token" in response.headers.get("set-cookie", "")
+
+
+def test_callback_redirects_to_frontend_error_when_processing_fails(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "process_callback",
+        side_effect=AuthCallbackRedirectException(),
+    )
+    response = client.get("/callback", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == (
+        "https://frontend.example.com/auth/callback/error?code=auth_callback_failed"
+    )
 
 
 def test_logout_clears_csrf_cookie(client):
@@ -62,6 +78,28 @@ def test_invite_exception_maps_to_502(client, gateway, mocker):
     )
     assert response.status_code == 502
     assert response.json()["detail"] == "invite failed"
+
+
+def test_invite_forwards_return_to_to_gateway(client, gateway, mocker):
+    create_invite = mocker.patch.object(
+        gateway,
+        "create_invite",
+        return_value="https://invite.example.com/doctor?email=doctor@example.com",
+    )
+    response = client.post(
+        "/url/invite",
+        json={
+            "email": "doctor@example.com",
+            "role": "doctor",
+            "return_to": "/team/invites",
+        },
+    )
+    assert response.status_code == 200
+    create_invite.assert_called_once_with(
+        "doctor@example.com",
+        "doctor",
+        "/team/invites",
+    )
 
 
 def test_me_success(client):

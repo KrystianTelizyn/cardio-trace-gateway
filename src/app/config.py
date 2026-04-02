@@ -41,6 +41,8 @@ class AuthSettings:
     secret: str
     scope: str
     frontend_url: str
+    callback_success_path: str = "/auth/callback/success"
+    callback_error_path: str = "/auth/callback/error"
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "AuthSettings":
@@ -54,6 +56,10 @@ class AuthSettings:
             secret=env("AUTH0_SECRET"),
             scope=env("AUTH0_SCOPE"),
             frontend_url=env("FRONTEND_URL"),
+            callback_success_path=env("AUTH_CALLBACK_SUCCESS_PATH", required=False)
+            or "/auth/callback/success",
+            callback_error_path=env("AUTH_CALLBACK_ERROR_PATH", required=False)
+            or "/auth/callback/error",
         )
 
 

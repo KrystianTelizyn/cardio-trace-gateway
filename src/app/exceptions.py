@@ -6,6 +6,14 @@ class GatewayExceptionBase(Exception):
 class AuthServiceException(GatewayExceptionBase):
     pass
 
+
+class AuthCallbackRedirectException(GatewayExceptionBase):
+    """Raised when callback handling should redirect browser to frontend error route."""
+
+    def __init__(self, code: str = "auth_callback_failed"):
+        super().__init__("Authentication callback failed")
+        self.code = code
+
 class InviteException(GatewayExceptionBase):
     pass
 

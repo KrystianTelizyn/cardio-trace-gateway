@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Request, Response, Security
 from fastapi.responses import JSONResponse
+from fastapi.responses import RedirectResponse
 
 from app.deps import get_gateway, require_cookie_access_token, csrf_api, csrf_graphql, csrf_header_scheme
 from app.gateway import Gateway
 from app.schemas import (
-    CallbackResponse,
     InviteRequest,
     InviteResponse,
     MeResponse,
@@ -18,7 +18,7 @@ from app.schemas import (
 router = APIRouter()
 
 
-@router.get("/me", response_model=MeResponse)
+@router.get("/me", response_model=MeResponse, tags=["Auth"])
 async def me(
     request: Request,
     response: Response,
@@ -28,18 +28,18 @@ async def me(
     return MeResponse(**(await gateway.get_me(request, response, access_token)))
 
 
-@router.get("/healthz", response_model=HealthResponse)
+@router.get("/healthz", response_model=HealthResponse, tags=["Health"])
 async def healthz() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.get("/readyz", response_model=ReadinessResponse)
+@router.get("/readyz", response_model=ReadinessResponse, tags=["Health"])
 async def readyz(gateway: Gateway = Depends(get_gateway)) -> ReadinessResponse:
     checks = gateway.ensure_ready()
     return ReadinessResponse(status="ok", checks=checks)
 
 
-@router.get("/url/auth0", response_model=LoginUrlResponse)
+@router.get("/url/auth0", response_model=LoginUrlResponse,tags=["Auth"])
 async def login(
     request: Request,
     response: Response,
@@ -50,6 +50,7 @@ async def login(
         invitation=payload.invitation,
         organization=payload.organization,
         organization_name=payload.organization_name,
+        return_to=payload.return_to,
         store_options={
             "request": request,
             "response": response,
@@ -58,17 +59,15 @@ async def login(
     return LoginUrlResponse(login_url=login_url, message="Follow the link to initiate login.")
 
 
-@router.get("/callback", response_model=CallbackResponse)
+@router.get("/callback",tags=["Auth"])
 async def callback(
     request: Request,
-    response: Response,
     gateway: Gateway = Depends(get_gateway),
-) -> CallbackResponse:
-    await gateway.complete_callback(request, response)
-    return CallbackResponse(success=True, message="Authentication successful, tokens set in cookie.")
+) -> RedirectResponse:
+    return await gateway.callback_redirect_response(request)
 
 
-@router.post("/logout", response_model=LogoutResponse)
+@router.post("/logout", response_model=LogoutResponse,tags=["Auth"])
 async def logout(
     request: Request,
     response: Response,
@@ -84,12 +83,12 @@ async def logout(
     )
 
 
-@router.post("/url/invite", response_model=InviteResponse)
+@router.post("/url/invite", response_model=InviteResponse,tags=["Invites"])
 async def invite(
     payload: InviteRequest,
     gateway: Gateway = Depends(get_gateway),
 ) -> InviteResponse:
-    invite_url = gateway.create_invite(str(payload.email), payload.role)
+    invite_url = gateway.create_invite(str(payload.email), payload.role, payload.return_to)
     return InviteResponse(
         invite_url=invite_url,
         message="User invited. Follow the link to complete the invitation.",
@@ -99,7 +98,7 @@ async def invite(
 _GATEWAY_HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 
 
-@router.api_route("/api/{proxy_path:path}", methods=_GATEWAY_HTTP_METHODS, tags=["gateway"])
+@router.api_route("/api/{proxy_path:path}", methods=_GATEWAY_HTTP_METHODS, tags=["REST"])
 async def gateway_rest_proxy(
     request: Request,
     proxy_path: str = "",
@@ -111,7 +110,7 @@ async def gateway_rest_proxy(
     return await gateway.proxy_api(request, proxy_path, access_token)
 
 
-@router.api_route("/graphql", methods=["GET", "POST"], tags=["gateway"])
+@router.api_route("/graphql", methods=["GET", "POST"], tags=["GraphQL"])
 async def gateway_graphql(
     request: Request,
     access_token: str = Depends(require_cookie_access_token),

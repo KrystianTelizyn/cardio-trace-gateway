@@ -6,6 +6,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import AppSettings, AuthSettings, InviteSettings, JwtSettings, RouterSettings
+from app.exceptions import AuthCallbackRedirectException
 from app.schemas import InviteRole
 from app.gateway.facade import Gateway
 
@@ -104,12 +105,44 @@ async def test_get_me_aggregates_claims_from_jwt_and_session(gateway):
 @pytest.mark.asyncio
 async def test_complete_callback_sets_csrf_cookie(gateway):
     gw, auth, _, _, _ = gateway
-    auth.process_callback = AsyncMock(return_value={"success": True})
+    auth.process_callback = AsyncMock(return_value={"success": True, "return_to": "/dashboard"})
     request = _make_request(path="/callback", query="code=1&state=2")
     response = Response()
-    await gw.complete_callback(request, response)
+    return_to = await gw.complete_callback(request, response)
+    assert return_to == "/dashboard"
     auth.process_callback.assert_called_once()
     auth.set_csrf_token_cookie.assert_called_once_with(response)
+
+
+@pytest.mark.asyncio
+async def test_callback_redirect_response_success(gateway):
+    gw, auth, _, _, _ = gateway
+    auth.process_callback = AsyncMock(return_value={"success": True, "return_to": "/patients"})
+    auth.success_redirect_url.side_effect = [
+        "https://frontend.example.com/auth/callback/success?next=%2F",
+        "https://frontend.example.com/auth/callback/success?next=%2Fpatients",
+    ]
+    request = _make_request(path="/callback", query="code=1&state=2")
+
+    response = await gw.callback_redirect_response(request)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == (
+        "https://frontend.example.com/auth/callback/success?next=%2Fpatients"
+    )
+
+
+@pytest.mark.asyncio
+async def test_callback_redirect_response_error_raises_dedicated_exception(gateway):
+    gw, auth, _, _, _ = gateway
+    auth.process_callback = AsyncMock(side_effect=AuthCallbackRedirectException())
+    auth.success_redirect_url.return_value = (
+        "https://frontend.example.com/auth/callback/success?next=%2F"
+    )
+    request = _make_request(path="/callback", query="error=access_denied&state=2")
+
+    with pytest.raises(AuthCallbackRedirectException):
+        await gw.callback_redirect_response(request)
 
 
 @pytest.mark.asyncio

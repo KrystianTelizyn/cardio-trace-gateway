@@ -3,9 +3,11 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
 from app.error_handlers import (
+    auth_callback_redirect_exception_handler,
     auth_service_exception_handler,
     csrf_validation_error_handler,
     gateway_not_ready_error_handler,
@@ -13,6 +15,7 @@ from app.error_handlers import (
     jwt_validation_error_handler,
 )
 from app.exceptions import (
+    AuthCallbackRedirectException,
     AuthServiceException,
     CsrfValidationError,
     GatewayNotReadyError,
@@ -53,7 +56,14 @@ class FakeAuth:
         return "https://auth.example.com/authorize"
 
     async def process_callback(self, callback_url: str, store_options: dict) -> dict:
-        return {"success": True}
+        return {"success": True, "return_to": "/dashboard"}
+
+    def success_redirect_url(self, return_to: str | None) -> str:
+        next_path = return_to or "/"
+        return f"https://frontend.example.com/auth/callback/success?next={next_path}"
+
+    def error_redirect_url(self, code: str = "auth_callback_failed") -> str:
+        return f"https://frontend.example.com/auth/callback/error?code={code}"
 
     async def process_logout(self, store_options: dict) -> str:
         return "https://auth.example.com/logout"
@@ -147,12 +157,24 @@ class FakeGateway:
             "picture": identity.get("picture"),
         }
 
-    async def complete_callback(self, request, response) -> None:
-        await self.auth.process_callback(
+    async def complete_callback(self, request, response) -> str:
+        callback_result = await self.auth.process_callback(
             callback_url=str(request.url),
             store_options={"request": request, "response": response},
         )
         self.auth.set_csrf_token_cookie(response)
+        return callback_result.get("return_to", "/")
+
+    async def callback_redirect_response(self, request):
+        success_redirect = RedirectResponse(
+            url=self.auth.success_redirect_url(return_to="/"),
+            status_code=302,
+        )
+        return_to = await self.complete_callback(request, success_redirect)
+        success_redirect.headers["location"] = self.auth.success_redirect_url(
+            return_to=return_to
+        )
+        return success_redirect
 
     async def logout_user(self, request, response) -> str:
         logout_url = await self.auth.process_logout(
@@ -161,7 +183,7 @@ class FakeGateway:
         self.auth.clear_csrf_token_cookie(response)
         return logout_url
 
-    def create_invite(self, email: str, role: str) -> str:
+    def create_invite(self, email: str, role: str, return_to: str | None = None) -> str:
         if role == "patient":
             return self.invites.invite_patient(email)
         return self.invites.invite_doctor(email)
@@ -202,6 +224,7 @@ def gateway() -> FakeGateway:
 def app(gateway: FakeGateway) -> FastAPI:
     app = FastAPI()
     app.add_exception_handler(JwtValidationError, jwt_validation_error_handler)
+    app.add_exception_handler(AuthCallbackRedirectException, auth_callback_redirect_exception_handler)
     app.add_exception_handler(AuthServiceException, auth_service_exception_handler)
     app.add_exception_handler(InviteException, invite_exception_handler)
     app.add_exception_handler(CsrfValidationError, csrf_validation_error_handler)

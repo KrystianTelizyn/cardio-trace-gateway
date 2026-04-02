@@ -3,7 +3,7 @@ from http.cookies import SimpleCookie
 import re
 
 from app.config import AuthSettings
-from app.exceptions import AuthServiceException, CsrfValidationError
+from app.exceptions import AuthCallbackRedirectException, AuthServiceException, CsrfValidationError
 from app.gateway.auth import GatewayAuth
 from auth0_server_python.error import Auth0Error
 from starlette.requests import Request
@@ -87,6 +87,7 @@ async def test_build_login_url_passes_base_authorization_params(auth_service):
         "scope": "openid profile",
         "audience": "https://api.example.com",
     }
+    assert kwargs["options"].app_state == {"return_to": "/"}
 
 
 @pytest.mark.asyncio
@@ -106,6 +107,20 @@ async def test_build_login_url_passes_invitation_authorization_params(auth_servi
     assert auth_params["invitation"] == "inv_123"
     assert auth_params["organization"] == "org_456"
     assert auth_params["organization_name"] == "Cardio Trace Org"
+
+
+@pytest.mark.asyncio
+async def test_build_login_url_normalizes_return_to_into_app_state(auth_service):
+    service, server_client = auth_service
+    server_client.start_interactive_login.return_value = "https://tenant.auth0.com/authorize"
+
+    await service.build_login_url(
+        store_options={},
+        return_to="https://frontend.example.com/patients?tab=active",
+    )
+
+    _, kwargs = server_client.start_interactive_login.call_args
+    assert kwargs["options"].app_state == {"return_to": "/patients?tab=active"}
 
 
 @pytest.mark.asyncio
@@ -135,11 +150,14 @@ async def test_process_callback_passes_url_exactly_to_server_client(auth_service
         "&returnTo=%2Fdashboard%3Ftab%3Dprofile"
     )
     store_options = {"request": object(), "response": object()}
-    server_client.complete_interactive_login.return_value = {"state_data": {"ok": True}}
+    server_client.complete_interactive_login.return_value = {
+        "state_data": {"ok": True},
+        "app_state": {"return_to": "/dashboard?tab=profile"},
+    }
 
     result = await service.process_callback(callback_url, store_options)
 
-    assert result == {"success": True}
+    assert result == {"success": True, "return_to": "/dashboard?tab=profile"}
     server_client.complete_interactive_login.assert_called_once_with(
         url=callback_url,
         store_options=store_options,
@@ -151,7 +169,7 @@ async def test_process_callback_maps_auth0_error(auth_service):
     service, server_client = auth_service
     server_client.complete_interactive_login.side_effect = Auth0Error("boom")
 
-    with pytest.raises(AuthServiceException):
+    with pytest.raises(AuthCallbackRedirectException):
         await service.process_callback("http://localhost/callback?code=bad", store_options={})
 
 

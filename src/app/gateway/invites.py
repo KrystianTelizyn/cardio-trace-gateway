@@ -1,4 +1,5 @@
 from app.config import InviteSettings
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from auth0.management.management_client import ManagementClient
 from auth0.management.core import ApiError
 from app.exceptions import InviteException
@@ -13,13 +14,28 @@ class Invites:
             client_secret=settings.api_explorer_client_secret,
         )
 
-    def invite_patient(self, email: str, ttl_sec: int = 3600) -> str:
-        return self.invite_user(email, self._settings.patient_role_id, ttl_sec)
+    @staticmethod
+    def _attach_return_to(invitation_url: str, normalized_return_to: str) -> str:
+        parts = urlsplit(invitation_url)
+        query_params = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query_params["return_to"] = normalized_return_to
+        return urlunsplit(parts._replace(query=urlencode(query_params)))
 
-    def invite_doctor(self, email: str, ttl_sec: int = 3600) -> str:
-        return self.invite_user(email, self._settings.doctor_role_id, ttl_sec)
+    def invite_patient(self, email: str, normalized_return_to: str | None = None, ttl_sec: int = 3600) -> str:
+        return self.invite_user(
+            email, 
+            role_id=self._settings.patient_role_id, 
+            normalized_return_to=normalized_return_to,
+            ttl_sec=ttl_sec)
 
-    def invite_user(self, email: str, role_id: str, ttl_sec: int = 3600) -> str:
+    def invite_doctor(self, email: str, normalized_return_to: str | None = None, ttl_sec: int = 3600) -> str:
+        return self.invite_user(
+            email,
+            role_id=self._settings.doctor_role_id,
+            normalized_return_to=normalized_return_to,
+            ttl_sec=ttl_sec)
+
+    def invite_user(self, email: str, role_id: str, normalized_return_to: str | None = None, ttl_sec: int = 3600) -> str:
         try:
             invitation_response = self.management_client.organizations.invitations.create(
                 id=self._settings.cardio_trace_clinic_id,
@@ -39,6 +55,8 @@ class Invites:
                 self._settings.cardio_trace_application_login_uri,
                 replacement,
             )
+            if normalized_return_to and normalized_return_to != "/":
+                invitation_url = self._attach_return_to(invitation_url, normalized_return_to)
             return invitation_url
         except ApiError as e:
             raise InviteException(f"Failed to generate invitation for {email} as {role_id}") from e

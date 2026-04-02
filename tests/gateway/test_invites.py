@@ -66,7 +66,12 @@ def test_invite_patient_uses_patient_role_id_from_settings(invites, mocker):
 
     service.invite_patient("patient@example.com")
 
-    invite_user_spy.assert_called_once_with("patient@example.com", "role_patient", 3600)
+    invite_user_spy.assert_called_once_with(
+        "patient@example.com",
+        role_id="role_patient",
+        normalized_return_to=None,
+        ttl_sec=3600,
+    )
 
 
 def test_invite_doctor_uses_doctor_role_id_from_settings(invites, mocker):
@@ -75,4 +80,9 @@ def test_invite_doctor_uses_doctor_role_id_from_settings(invites, mocker):
 
     service.invite_doctor("doctor@example.com")
 
-    invite_user_spy.assert_called_once_with("doctor@example.com", "role_doctor", 3600)
+    invite_user_spy.assert_called_once_with(
+        "doctor@example.com",
+        role_id="role_doctor",
+        normalized_return_to=None,
+        ttl_sec=3600,
+    )
