@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 
 from app.config import InviteSettings
@@ -47,7 +49,12 @@ def test_invite_user_calls_management_client_with_expected_params(invites, mocke
     response.invitation_url = "https://login.example.com/invite?ticket=xyz"
     mgmt_client.organizations.invitations.create.return_value = response
 
-    service.invite_user("member@example.com", role_id="role_custom", ttl_sec=900)
+    service.invite_user(
+        "member@example.com",
+        role_id="role_custom",
+        normalized_return_to=None,
+        ttl_sec=900,
+    )
 
     mgmt_client.organizations.invitations.create.assert_called_once_with(
         id="org_1",
@@ -58,6 +65,37 @@ def test_invite_user_calls_management_client_with_expected_params(invites, mocke
         roles=["role_custom"],
         send_invitation_email=False,
     )
+
+
+def test_invite_user_appends_return_to_query_when_normalized_return_to_set(invites, mocker):
+    service, mgmt_client = invites
+    response = mocker.Mock()
+    response.invitation_url = "https://login.example.com/invite?ticket=abc"
+    mgmt_client.organizations.invitations.create.return_value = response
+
+    url = service.invite_user(
+        "member@example.com",
+        role_id="role_custom",
+        normalized_return_to="/dashboard",
+    )
+
+    qs = parse_qs(urlparse(url).query)
+    assert qs.get("return_to") == ["/dashboard"]
+
+
+def test_invite_user_omits_return_to_when_normalized_return_to_is_root_path(invites, mocker):
+    service, mgmt_client = invites
+    response = mocker.Mock()
+    response.invitation_url = "https://login.example.com/invite?ticket=abc"
+    mgmt_client.organizations.invitations.create.return_value = response
+
+    url = service.invite_user(
+        "member@example.com",
+        role_id="role_custom",
+        normalized_return_to="/",
+    )
+
+    assert "return_to" not in urlparse(url).query
 
 
 def test_invite_patient_uses_patient_role_id_from_settings(invites, mocker):
@@ -74,6 +112,20 @@ def test_invite_patient_uses_patient_role_id_from_settings(invites, mocker):
     )
 
 
+def test_invite_patient_forwards_normalized_return_to(invites, mocker):
+    service, _ = invites
+    invite_user_spy = mocker.patch.object(service, "invite_user", return_value="ignored")
+
+    service.invite_patient("patient@example.com", normalized_return_to="/after-login", ttl_sec=7200)
+
+    invite_user_spy.assert_called_once_with(
+        "patient@example.com",
+        role_id="role_patient",
+        normalized_return_to="/after-login",
+        ttl_sec=7200,
+    )
+
+
 def test_invite_doctor_uses_doctor_role_id_from_settings(invites, mocker):
     service, _ = invites
     invite_user_spy = mocker.patch.object(service, "invite_user", return_value="ignored")
@@ -85,4 +137,18 @@ def test_invite_doctor_uses_doctor_role_id_from_settings(invites, mocker):
         role_id="role_doctor",
         normalized_return_to=None,
         ttl_sec=3600,
+    )
+
+
+def test_invite_doctor_forwards_normalized_return_to(invites, mocker):
+    service, _ = invites
+    invite_user_spy = mocker.patch.object(service, "invite_user", return_value="ignored")
+
+    service.invite_doctor("doctor@example.com", normalized_return_to="/clinic", ttl_sec=7200)
+
+    invite_user_spy.assert_called_once_with(
+        "doctor@example.com",
+        role_id="role_doctor",
+        normalized_return_to="/clinic",
+        ttl_sec=7200,
     )
