@@ -29,9 +29,14 @@ def _make_request(method: str, headers: dict[str, str] | None = None, cookie: st
 
 
 @pytest.mark.asyncio
-async def test_require_cookie_access_token_success(gateway):
+async def test_require_cookie_access_token_success(gateway, mocker):
     request = _make_request("GET")
     response = Response()
+    mocker.patch.object(
+        gateway.auth,
+        "get_access_token_from_session",
+        return_value="example-access-token",
+    )
     token = await require_cookie_access_token(request, response, gateway)
     assert token == "example-access-token"
 

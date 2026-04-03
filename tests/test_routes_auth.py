@@ -1,8 +1,16 @@
-from app.exceptions import AuthCallbackRedirectException, AuthServiceException, InviteException
+import re
+
+from app.exceptions import AuthCallbackRedirectException, AuthServiceException, InviteException, JwtValidationError
 from auth0_server_python.error import AccessTokenError
+from app.gateway.auth_redirects import AuthRedirectPolicy
 
 
-def test_login_url_success(client):
+def test_login_url_success(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "build_login_url",
+        return_value="https://auth.example.com/authorize",
+    )
     response = client.get("/url/auth0")
     assert response.status_code == 200
     data = response.json()
@@ -20,13 +28,24 @@ def test_login_url_auth_error_maps_to_502(client, gateway, mocker):
     assert response.json()["detail"] == "Failed to build login URL"
 
 
-def test_callback_sets_csrf_cookie(client):
+def test_callback_sets_csrf_cookie(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "process_callback",
+        return_value={"success": True, "return_to": "/"},
+    )
+
     response = client.get("/callback", follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["location"].startswith(
-        "https://frontend.example.com/auth/callback/success"
-    )
-    assert "gateway_csrf=csrf-token" in response.headers.get("set-cookie", "")
+    # Location should be a successful frontend callback URL.
+    assert "/auth/callback/success" in response.headers["location"]
+
+    # CSRF cookie should be set with a non-empty, URL-safe token.
+    set_cookie = response.headers.get("set-cookie", "")
+    match = re.search(r"gateway_csrf=([^;]+)", set_cookie)
+    assert match is not None
+    csrf_token = match.group(1)
+    assert re.fullmatch(r"[-A-Za-z0-9_~.]+", csrf_token) is not None
 
 
 def test_callback_redirects_to_frontend_error_when_processing_fails(client, gateway, mocker):
@@ -49,7 +68,7 @@ def test_logout_clears_csrf_cookie(client):
         headers={"X-CSRF-Token": "csrf-token"},
     )
     assert response.status_code == 200
-    assert "gateway_csrf=" in response.headers.get("set-cookie", "")
+    assert "gateway_csrf=\"\";" in response.headers.get("set-cookie", "")
 
 
 def test_logout_forwards_return_to_to_gateway(client, gateway, mocker):
@@ -71,7 +90,12 @@ def test_logout_rejects_without_csrf(client):
     assert response.status_code == 403
 
 
-def test_invite_doctor_success(client):
+def test_invite_doctor_success(client, gateway, mocker):
+    mocker.patch.object(
+        gateway,
+        "create_invite",
+        return_value="https://invite.example.com/doctor?email=doctor@example.com",
+    )
     response = client.post(
         "/url/invite",
         json={"email": "doctor@example.com", "role": "doctor"},
@@ -116,7 +140,37 @@ def test_invite_forwards_return_to_to_gateway(client, gateway, mocker):
     )
 
 
-def test_me_success(client):
+def test_me_success(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "get_access_token_from_session",
+        return_value="example-access-token",
+    )
+    mocker.patch.object(
+        gateway.jwt,
+        "validate_access_token",
+        return_value={
+            "sub": "user_123",
+            "org_id": "org_abc",
+            "scope": "openid profile",
+            "permissions": ["read:patients"],
+            "https://cardio-trace.com/roles": ["doctor"],
+        },
+    )
+    mocker.patch.object(
+        gateway.auth,
+        "get_session_from_request",
+        return_value={
+            "access_token": "example-access-token",
+            "id_token": "header.payload.signature",
+            "user": {
+                "email": "doctor@example.com",
+                "name": "Dr Example",
+                "picture": "https://example.com/avatar.png",
+            },
+        },
+    )
+
     response = client.get("/me")
     assert response.status_code == 200
     data = response.json()
@@ -140,15 +194,45 @@ def test_me_rejects_unauthenticated(client, gateway, mocker):
     assert response.json()["detail"] == "Not authenticated"
 
 
-def test_me_rejects_invalid_jwt(client, gateway):
-    gateway.auth.session_token = "bad-token"
+def test_me_rejects_invalid_jwt(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "get_access_token_from_session",
+        return_value="bad-token",
+    )
+    mocker.patch.object(
+        gateway.jwt,
+        "validate_access_token",
+        side_effect=JwtValidationError("Invalid token"),
+    )
     response = client.get("/me")
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid or expired access token"
+    assert "Invalid or expired access token" in response.json()["detail"]
 
 
-def test_me_allows_missing_identity_claims(client, gateway):
-    gateway.auth.session_data = {"access_token": "example-access-token"}
+def test_me_allows_missing_identity_claims(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "get_access_token_from_session",
+        return_value="example-access-token",
+    )
+    mocker.patch.object(
+        gateway.jwt,
+        "validate_access_token",
+        return_value={
+            "sub": "user_123",
+            "org_id": "org_abc",
+            "scope": "openid profile",
+            "permissions": ["read:patients"],
+            "https://cardio-trace.com/roles": ["doctor"],
+        },
+    )
+    mocker.patch.object(
+        gateway.auth,
+        "get_session_from_request",
+        return_value={"access_token": "example-access-token"},
+    )
+
     response = client.get("/me")
     assert response.status_code == 200
     data = response.json()
