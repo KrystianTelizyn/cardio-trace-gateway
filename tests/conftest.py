@@ -6,26 +6,8 @@ from fastapi.testclient import TestClient
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response
 
-from auth0_server_python.error import AccessTokenError
-
-from app.error_handlers import (
-    access_token_error_handler,
-    auth_callback_redirect_exception_handler,
-    auth_service_exception_handler,
-    csrf_validation_error_handler,
-    gateway_not_ready_error_handler,
-    invite_exception_handler,
-    jwt_validation_error_handler,
-)
-from app.exceptions import (
-    AuthCallbackRedirectException,
-    AuthServiceException,
-    CsrfValidationError,
-    GatewayNotReadyError,
-    InviteException,
-    JwtValidationError,
-)
-from app.routes import router
+from app.exceptions import CsrfValidationError, GatewayNotReadyError, JwtValidationError
+from app.main import create_app
 
 
 class FakeAuth:
@@ -235,15 +217,7 @@ def gateway() -> FakeGateway:
 
 @pytest.fixture
 def app(gateway: FakeGateway) -> FastAPI:
-    app = FastAPI()
-    app.add_exception_handler(JwtValidationError, jwt_validation_error_handler)
-    app.add_exception_handler(AccessTokenError, access_token_error_handler)
-    app.add_exception_handler(AuthCallbackRedirectException, auth_callback_redirect_exception_handler)
-    app.add_exception_handler(AuthServiceException, auth_service_exception_handler)
-    app.add_exception_handler(InviteException, invite_exception_handler)
-    app.add_exception_handler(CsrfValidationError, csrf_validation_error_handler)
-    app.add_exception_handler(GatewayNotReadyError, gateway_not_ready_error_handler)
-    app.include_router(router)
+    app = create_app()
     app.state.gateway = gateway
     return app
 
