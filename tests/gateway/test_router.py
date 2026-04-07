@@ -1,3 +1,4 @@
+import pytest
 from starlette.requests import Request
 
 from app.config import RouterSettings
@@ -49,7 +50,7 @@ def test_build_upstream_headers_allowlist():
     assert headers["accept"] == "application/json"
     assert "x-internal" not in headers
 
-
+@pytest.mark.asyncio
 async def test_api_forwards_request_and_filters_response_headers(mocker):
     settings = RouterSettings(
         inner_api_base_url="https://inner.example.com",
@@ -78,7 +79,7 @@ async def test_api_forwards_request_and_filters_response_headers(mocker):
     assert request_mock.call_args.args[1] == "https://inner.example.com/api/users?active=true"
     assert request_mock.call_args.kwargs["content"] == b'{"x":1}'
 
-
+@pytest.mark.asyncio
 async def test_graphql_forwards_to_hasura(mocker):
     settings = RouterSettings(
         inner_api_base_url="https://inner.example.com",

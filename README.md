@@ -69,16 +69,21 @@ Install test dependencies:
 uv sync --group dev
 ```
 
-Run the CI-friendly test command (includes coverage gate at 80% for gateway/security modules):
-
-```bash
-uv run pytest
-```
-
-Run only unit/contract tests:
+Run tests locally (default; includes coverage gate at 80% for gateway/security modules):
 
 ```bash
 uv run pytest -m "not integration"
+```
+
+`asyncio_mode = "strict"` is enabled, so async tests must be explicitly marked:
+
+- `@pytest.mark.asyncio` on each async test, or
+- `pytestmark = pytest.mark.asyncio` at module level.
+
+Run the full suite (unit + integration):
+
+```bash
+uv run pytest
 ```
 
 Run integration tests against staging services:
@@ -87,9 +92,11 @@ Run integration tests against staging services:
 RUN_INTEGRATION=1 uv run pytest --no-cov -m integration
 ```
 
+If you hit `Runner.run() cannot be called from a running event loop`, run unit/contract
+and integration tests separately as shown above.
+
 Integration tests require these environment variables:
 
-- `INTEGRATION_GATEWAY_BASE_URL`
 - `INTEGRATION_AUTH0_DOMAIN`
 - `INTEGRATION_INNER_SERVICE_URL`
 - `INTEGRATION_HASURA_URL`
@@ -97,6 +104,7 @@ Integration tests require these environment variables:
 
 Optional integration variables:
 
+- `INTEGRATION_GATEWAY_BASE_URL` (if omitted, tests try to start a local gateway on `localhost:8000`)
 - `INTEGRATION_AUTH0_CALLBACK_QUERY` (`code=...&state=...` for callback test)
 - `INTEGRATION_SESSION_COOKIE` (raw cookie header value for authenticated proxy tests)
 - `INTEGRATION_CSRF_TOKEN` (for CSRF-success mutation test)
