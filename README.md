@@ -52,6 +52,33 @@ Run the app (after configuring `.env`):
 uv run fastapi dev app.main:app --reload
 ```
 
+## Docker
+
+Build the image:
+
+```bash
+docker build -t cardio-trace-gateway .
+```
+
+Run the container:
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env cardio-trace-gateway
+```
+
+The container starts through `entrypoint.sh`, which launches Uvicorn with:
+- app module: `app.main:app` (override with `APP_MODULE`)
+- host: `0.0.0.0` (override with `HOST`)
+- port: `8000` (override with `PORT`)
+- log level: `info` (override with `LOG_LEVEL`)
+- optional worker count via `WORKERS`
+
+You can pass extra Uvicorn flags at runtime:
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env cardio-trace-gateway --timeout-keep-alive 30
+```
+
 Add or upgrade a dependency and refresh the lockfile:
 
 ```bash
