@@ -138,8 +138,6 @@ class AppSettings:
     """
     Aggregate of all gateway settings.
 
-    In production you'd typically construct this once at startup and then
-    pass only the sub-settings each component needs.
     """
 
     auth: AuthSettings
