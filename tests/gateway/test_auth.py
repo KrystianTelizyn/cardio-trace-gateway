@@ -87,15 +87,15 @@ async def test_build_login_url_passes_base_authorization_params(auth_service):
         "scope": "openid profile",
         "audience": "https://api.example.com",
     }
-    assert kwargs["options"].app_state == {"return_to": "/"}
+    assert kwargs["options"].app_state == {"return_to": "/", "flow_type": "login"}
 
 
 @pytest.mark.asyncio
-async def test_build_login_url_passes_invitation_authorization_params(auth_service):
+async def test_build_invite_login_url_passes_invitation_authorization_params(auth_service):
     service, server_client = auth_service
     server_client.start_interactive_login.return_value = "https://tenant.auth0.com/authorize"
 
-    await service.build_login_url(
+    await service.build_invite_login_url(
         store_options={},
         invitation="inv_123",
         organization="org_456",
@@ -120,26 +120,26 @@ async def test_build_login_url_normalizes_return_to_into_app_state(auth_service)
     )
 
     _, kwargs = server_client.start_interactive_login.call_args
-    assert kwargs["options"].app_state == {"return_to": "/patients?tab=active"}
+    assert kwargs["options"].app_state == {
+        "return_to": "/patients?tab=active",
+        "flow_type": "login",
+    }
 
 
 @pytest.mark.asyncio
-async def test_build_login_url_omits_invitation_params_when_any_missing(auth_service):
+async def test_build_invite_login_url_sets_invite_flow_type_in_app_state(auth_service):
     service, server_client = auth_service
     server_client.start_interactive_login.return_value = "https://tenant.auth0.com/authorize"
 
-    await service.build_login_url(
+    await service.build_invite_login_url(
         store_options={},
         invitation="inv_123",
         organization="org_456",
-        organization_name=None,
+        organization_name="Cardio Trace Org",
     )
 
     _, kwargs = server_client.start_interactive_login.call_args
-    auth_params = kwargs["options"].authorization_params
-    assert "invitation" not in auth_params
-    assert "organization" not in auth_params
-    assert "organization_name" not in auth_params
+    assert kwargs["options"].app_state == {"return_to": "/", "flow_type": "invite_accept"}
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_process_callback_passes_url_exactly_to_server_client(auth_service
 
     result = await service.process_callback(callback_url, store_options)
 
-    assert result == {"success": True, "return_to": "/dashboard?tab=profile"}
+    assert result == {"success": True, "return_to": "/dashboard?tab=profile", "flow_type": "login"}
     server_client.complete_interactive_login.assert_called_once_with(
         url=callback_url,
         store_options=store_options,

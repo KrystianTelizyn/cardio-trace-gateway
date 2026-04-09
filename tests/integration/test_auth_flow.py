@@ -8,6 +8,30 @@ def test_auth0_login_url_endpoint_returns_auth0_redirect(integration_client, int
     payload = response.json()
     assert "login_url" in payload
     assert integration_env["INTEGRATION_AUTH0_DOMAIN"] in payload["login_url"]
+    assert "invitation=" not in payload["login_url"]
+    assert "organization=" not in payload["login_url"]
+    assert "organization_name=" not in payload["login_url"]
+
+
+@pytest.mark.integration
+def test_auth0_invite_login_url_endpoint_returns_auth0_redirect_with_invite_params(
+    integration_client, integration_env
+):
+    response = integration_client.get(
+        "/url/auth0/invite",
+        params={
+            "invitation": "inv_test_123",
+            "organization": "org_test_123",
+            "organization_name": "Cardio Trace Org",
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "login_url" in payload
+    assert integration_env["INTEGRATION_AUTH0_DOMAIN"] in payload["login_url"]
+    assert "invitation=inv_test_123" in payload["login_url"]
+    assert "organization=org_test_123" in payload["login_url"]
+    assert "organization_name=Cardio+Trace+Org" in payload["login_url"]
 
 
 @pytest.mark.integration

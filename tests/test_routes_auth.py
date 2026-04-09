@@ -32,7 +32,7 @@ def test_callback_sets_csrf_cookie(client, gateway, mocker):
     mocker.patch.object(
         gateway.auth,
         "process_callback",
-        return_value={"success": True, "return_to": "/"},
+        return_value={"success": True, "return_to": "/", "flow_type": "login"},
     )
 
     response = client.get("/callback", follow_redirects=False)
@@ -138,6 +138,60 @@ def test_invite_forwards_return_to_to_gateway(client, gateway, mocker):
         "doctor",
         "/team/invites",
     )
+
+
+def test_invite_login_url_success(client, gateway, mocker):
+    spy = mocker.patch.object(
+        gateway.auth,
+        "build_invite_login_url",
+        return_value="https://auth.example.com/authorize?invitation=inv_123",
+    )
+    response = client.get(
+        "/url/auth0/invite",
+        params={
+            "invitation": "inv_123",
+            "organization": "org_456",
+            "organization_name": "Cardio Trace Org",
+            "return_to": "/onboarding",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["login_url"] == "https://auth.example.com/authorize?invitation=inv_123"
+    spy.assert_called_once()
+    assert spy.call_args.kwargs["invitation"] == "inv_123"
+    assert spy.call_args.kwargs["organization"] == "org_456"
+    assert spy.call_args.kwargs["organization_name"] == "Cardio Trace Org"
+    assert spy.call_args.kwargs["return_to"] == "/onboarding"
+
+
+def test_invite_login_url_auth_error_maps_to_502(client, gateway, mocker):
+    mocker.patch.object(
+        gateway.auth,
+        "build_invite_login_url",
+        side_effect=AuthServiceException("Failed to build invite login URL"),
+    )
+    response = client.get(
+        "/url/auth0/invite",
+        params={
+            "invitation": "inv_123",
+            "organization": "org_456",
+            "organization_name": "Cardio Trace Org",
+        },
+    )
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Failed to build invite login URL"
+
+
+def test_invite_login_url_validation_requires_all_invite_query_params(client):
+    response = client.get(
+        "/url/auth0/invite",
+        params={
+            "invitation": "inv_123",
+            "organization": "org_456",
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_me_success(client, gateway, mocker):
