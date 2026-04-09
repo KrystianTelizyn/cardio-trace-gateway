@@ -20,8 +20,8 @@ from app.schemas import (
 router = APIRouter()
 
 
-@router.get("/me", response_model=MeResponse, tags=["Auth"])
-async def me(
+@router.get("/auth/me", response_model=MeResponse, tags=["Auth"])
+async def auth_me(
     request: Request,
     response: Response,
     access_token: str = Depends(require_cookie_access_token),
@@ -41,8 +41,8 @@ async def readyz(gateway: Gateway = Depends(get_gateway)) -> ReadinessResponse:
     return ReadinessResponse(status="ok", checks=checks)
 
 
-@router.get("/url/auth0", response_model=LoginUrlResponse,tags=["Auth"])
-async def login(
+@router.get("/auth/login-url", response_model=LoginUrlResponse, tags=["Auth"])
+async def get_login_url(
     request: Request,
     response: Response,
     payload: LoginUrlRequest = Depends(),
@@ -58,8 +58,8 @@ async def login(
     return LoginUrlResponse(login_url=login_url, message="Follow the link to initiate login.")
 
 
-@router.get("/url/auth0/invite", response_model=LoginUrlResponse,tags=["Auth"])
-async def initial_login_from_invite(
+@router.get("/auth/invite-login-url", response_model=LoginUrlResponse, tags=["Auth"])
+async def get_invite_login_url(
     request: Request,
     response: Response,
     payload: InviteLoginUrlRequest = Depends(),
@@ -78,16 +78,16 @@ async def initial_login_from_invite(
     return LoginUrlResponse(login_url=login_url, message="Follow the link to initiate login.")
 
 
-@router.get("/callback",tags=["Auth"])
-async def callback(
+@router.get("/auth/callback", tags=["Auth"])
+async def auth_callback(
     request: Request,
     gateway: Gateway = Depends(get_gateway),
 ) -> RedirectResponse:
     return await gateway.callback_redirect_response(request)
 
 
-@router.post("/logout", response_model=LogoutResponse,tags=["Auth"])
-async def logout(
+@router.post("/auth/logout", response_model=LogoutResponse, tags=["Auth"])
+async def auth_logout(
     request: Request,
     response: Response,
     payload: LogoutRequest | None = Body(default=None),
@@ -106,8 +106,8 @@ async def logout(
     )
 
 
-@router.post("/url/invite", response_model=InviteResponse,tags=["Invites"])
-async def invite(
+@router.post("/invites", response_model=InviteResponse, tags=["Invites"])
+async def create_invite(
     payload: InviteRequest,
     gateway: Gateway = Depends(get_gateway),
 ) -> InviteResponse:
