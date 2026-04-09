@@ -10,6 +10,7 @@ from app.schemas import (
     MeResponse,
     HealthResponse,
     ReadinessResponse,
+    InviteLoginUrlRequest,
     LoginUrlRequest,
     LoginUrlResponse,
     LogoutRequest,
@@ -48,6 +49,23 @@ async def login(
     gateway: Gateway = Depends(get_gateway),
 ) -> LoginUrlResponse:
     login_url = await gateway.auth.build_login_url(
+        return_to=payload.return_to,
+        store_options={
+            "request": request,
+            "response": response,
+        },
+    )
+    return LoginUrlResponse(login_url=login_url, message="Follow the link to initiate login.")
+
+
+@router.get("/url/auth0/invite", response_model=LoginUrlResponse,tags=["Auth"])
+async def initial_login_from_invite(
+    request: Request,
+    response: Response,
+    payload: InviteLoginUrlRequest = Depends(),
+    gateway: Gateway = Depends(get_gateway),
+) -> LoginUrlResponse:
+    login_url = await gateway.auth.build_invite_login_url(
         invitation=payload.invitation,
         organization=payload.organization,
         organization_name=payload.organization_name,

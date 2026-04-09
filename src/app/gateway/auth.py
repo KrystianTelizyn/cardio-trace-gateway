@@ -21,6 +21,9 @@ class GatewayAuth:
     _CSRF_HEADER_NAME = "X-CSRF-Token"
     _CSRF_TOKEN_TTL_SEC = 3600
     _LOGIN_RETURN_TO_KEY = "return_to"
+    _LOGIN_FLOW_TYPE_KEY = "flow_type"
+    LOGIN_FLOW = "login"
+    INVITE_ACCEPT_FLOW = "invite_accept"
 
     def __init__(self, settings: AuthSettings) -> None:
         """
@@ -95,28 +98,28 @@ class GatewayAuth:
             "picture": claims.get("picture"),
         }
 
-    async def build_login_url(
+    async def _start_interactive_login(
         self,
         store_options: dict,
-        invitation: str | None = None,
-        organization: str | None = None,
-        organization_name: str | None = None,
         return_to: str | None = None,
+        flow_type: str = LOGIN_FLOW,
+        authorization_params: dict[str, str] | None = None,
     ) -> str:
-        authorization_params = {
+        request_authorization_params = {
             "response_type": "code",
             "client_id": self._settings.client_id,
             "redirect_uri": self._settings.redirect_uri,
             "scope": self._settings.scope,
             "audience": self._settings.audience,
         }
-        if invitation and organization and organization_name:
-            authorization_params["invitation"] = invitation
-            authorization_params["organization"] = organization
-            authorization_params["organization_name"] = organization_name
+        if authorization_params:
+            request_authorization_params.update(authorization_params)
         options = StartInteractiveLoginOptions(
-            authorization_params=authorization_params,
-            app_state={self._LOGIN_RETURN_TO_KEY: self._redirect_policy.normalize_return_to(return_to)},
+            authorization_params=request_authorization_params,
+            app_state={
+                self._LOGIN_RETURN_TO_KEY: self._redirect_policy.normalize_return_to(return_to),
+                self._LOGIN_FLOW_TYPE_KEY: flow_type,
+            },
         )
 
         try:
@@ -127,6 +130,36 @@ class GatewayAuth:
             return callback_url
         except Auth0Error as e:
             raise AuthServiceException("Failed to build login URL") from e
+
+    async def build_login_url(
+        self,
+        store_options: dict,
+        return_to: str | None = None,
+    ) -> str:
+        return await self._start_interactive_login(
+            store_options=store_options,
+            return_to=return_to,
+            flow_type=self.LOGIN_FLOW,
+        )
+
+    async def build_invite_login_url(
+        self,
+        store_options: dict,
+        invitation: str,
+        organization: str,
+        organization_name: str,
+        return_to: str | None = None,
+    ) -> str:
+        return await self._start_interactive_login(
+            store_options=store_options,
+            return_to=return_to,
+            flow_type=self.INVITE_ACCEPT_FLOW,
+            authorization_params={
+                "invitation": invitation,
+                "organization": organization,
+                "organization_name": organization_name,
+            },
+        )
 
     async def process_logout(
         self,
@@ -153,9 +186,17 @@ class GatewayAuth:
             raw_return_to = (
                 app_state.get(self._LOGIN_RETURN_TO_KEY) if isinstance(app_state, dict) else None
             )
+            flow_type = (
+                app_state.get(self._LOGIN_FLOW_TYPE_KEY) if isinstance(app_state, dict) else None
+            )
             return {
                 "success": True,
                 "return_to": self._redirect_policy.normalize_return_to(raw_return_to),
+                "flow_type": (
+                    flow_type
+                    if flow_type in {self.LOGIN_FLOW, self.INVITE_ACCEPT_FLOW}
+                    else self.LOGIN_FLOW
+                ),
             }
         except Auth0Error as e:
             raise AuthCallbackRedirectException() from e

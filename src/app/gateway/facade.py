@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Self
 
 from fastapi import Request, Response
@@ -14,6 +15,8 @@ from app.schemas import InviteRole
 
 
 class Gateway:
+    _logger = logging.getLogger(__name__)
+
     def __init__(self, settings: AppSettings) -> None:
         """
         Aggregate gateway facade wired with explicit settings.
@@ -77,7 +80,7 @@ class Gateway:
             "picture": identity.get("picture"),
         }
 
-    async def complete_callback(self, request: Request, response: Response) -> str:
+    async def complete_callback(self, request: Request, response: Response) -> dict[str, Any]:
         callback_result = await self.auth.process_callback(
             callback_url=str(request.url),
             store_options={
@@ -86,16 +89,28 @@ class Gateway:
             },
         )
         self.auth.set_csrf_token_cookie(response)
-        return str(callback_result.get("return_to", "/"))
+        return {
+            "return_to": str(callback_result.get("return_to", "/")),
+            "flow_type": str(callback_result.get("flow_type", self.auth.LOGIN_FLOW)),
+        }
+
+    def _notify_invite_registration_completed(self, callback_result: dict[str, Any]) -> None:
+        """Placeholder for future invite-registration completion notification integration."""
+        self._logger.info(
+            "Invite registration callback completed (placeholder hook).",
+            extra={"flow_type": callback_result.get("flow_type")},
+        )
 
     async def callback_redirect_response(self, request: Request) -> RedirectResponse:
         success_redirect = RedirectResponse(
             url=self.auth.success_redirect_url(return_to="/"),
             status_code=302,
         )
-        return_to = await self.complete_callback(request, success_redirect)
+        callback_result = await self.complete_callback(request, success_redirect)
+        if callback_result.get("flow_type") == self.auth.INVITE_ACCEPT_FLOW:
+            self._notify_invite_registration_completed(callback_result)
         success_redirect.headers["location"] = self.auth.success_redirect_url(
-            return_to=return_to
+            return_to=str(callback_result.get("return_to", "/"))
         )
         return success_redirect
 

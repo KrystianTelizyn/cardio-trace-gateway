@@ -4,9 +4,13 @@ from pydantic import BaseModel, EmailStr
 
 
 class LoginUrlRequest(BaseModel):
-    invitation: str | None = None
-    organization: str | None = None
-    organization_name: str | None = None
+    return_to: str | None = None
+
+
+class InviteLoginUrlRequest(BaseModel):
+    invitation: str
+    organization: str
+    organization_name: str
     return_to: str | None = None
 
 
