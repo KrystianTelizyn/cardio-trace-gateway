@@ -12,7 +12,7 @@ def test_playwright_auth0_login_happy_path(page, gateway_base_url):
     organization_name = os.getenv("INTEGRATION_AUTH0_ORGANIZATION_NAME").strip()
 
     return_to = quote(f"/playwright-next-{uuid4().hex[:8]}", safe='')   
-    login_response = page.goto(f"{gateway_base_url}/url/auth0?return_to={return_to}")
+    login_response = page.goto(f"{gateway_base_url}/auth/login-url?return_to={return_to}")
     assert login_response.status == 200
     login_url = login_response.json()["login_url"]
 
@@ -36,7 +36,7 @@ def test_playwright_auth0_login_happy_path(page, gateway_base_url):
     redirect_url = f"{FRONTEND_URL}{AUTH_CALLBACK_SUCCESS_PATH}?next={return_to}"
     page.wait_for_url(redirect_url, timeout=10000)
 
-    me_response = page.goto(gateway_base_url + "/me")
+    me_response = page.goto(gateway_base_url + "/auth/me")
     assert me_response.status == 200
     me_payload = me_response.json()
     assert me_payload.get("email") == email

@@ -35,7 +35,7 @@ def _settings() -> AppSettings:
             audience="https://api.example.com",
             client_id="client-id",
             client_secret="client-secret",
-            redirect_uri="http://localhost/callback",
+            redirect_uri="http://localhost/auth/callback",
             secret="auth-secret",
             scope="openid profile",
             frontend_url="https://frontend.example.com",
@@ -108,7 +108,7 @@ async def test_complete_callback_sets_csrf_cookie(gateway):
     auth.process_callback = AsyncMock(
         return_value={"success": True, "return_to": "/dashboard", "flow_type": "login"}
     )
-    request = _make_request(path="/callback", query="code=1&state=2")
+    request = _make_request(path="/auth/callback", query="code=1&state=2")
     response = Response()
     callback_result = await gw.complete_callback(request, response)
     assert callback_result == {"return_to": "/dashboard", "flow_type": "login"}
@@ -126,7 +126,7 @@ async def test_callback_redirect_response_success(gateway):
         "https://frontend.example.com/auth/callback/success?next=%2F",
         "https://frontend.example.com/auth/callback/success?next=%2Fpatients",
     ]
-    request = _make_request(path="/callback", query="code=1&state=2")
+    request = _make_request(path="/auth/callback", query="code=1&state=2")
 
     response = await gw.callback_redirect_response(request)
 
@@ -143,7 +143,7 @@ async def test_callback_redirect_response_error_raises_dedicated_exception(gatew
     auth.success_redirect_url.return_value = (
         "https://frontend.example.com/auth/callback/success?next=%2F"
     )
-    request = _make_request(path="/callback", query="error=access_denied&state=2")
+    request = _make_request(path="/auth/callback", query="error=access_denied&state=2")
 
     with pytest.raises(AuthCallbackRedirectException):
         await gw.callback_redirect_response(request)
@@ -194,6 +194,6 @@ async def test_notifies_invite_registration_completed(gateway):
     gw.complete_callback = AsyncMock(
         return_value={"success": True, "return_to": "/dashboard", "flow_type": "invite_accept"}
     )
-    request = _make_request(path="/callback", query="code=1&state=2")
+    request = _make_request(path="/auth/callback", query="code=1&state=2")
     response = await gw.callback_redirect_response(request)
     gw._notify_invite_registration_completed.assert_called_once()

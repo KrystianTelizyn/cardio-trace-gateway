@@ -19,7 +19,7 @@ def _test_app_settings() -> AppSettings:
         audience="https://cardio-trace-api",
         client_id="test-client-id",
         client_secret="test-client-secret",
-        redirect_uri="https://gateway.example.com/callback",
+        redirect_uri="https://gateway.example.com/auth/callback",
         secret="test-secret",
         scope="openid profile",
         frontend_url="https://frontend.example.com",

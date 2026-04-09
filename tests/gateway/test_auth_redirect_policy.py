@@ -11,7 +11,7 @@ def auth_redirect_policy() -> AuthRedirectPolicy:
         audience="https://api.example.com",
         client_id="client-id",
         client_secret="client-secret",
-        redirect_uri="http://localhost/callback",
+        redirect_uri="http://localhost/auth/callback",
         secret="auth0-secret",
         scope="openid profile",
         frontend_url="https://frontend.example.com",
