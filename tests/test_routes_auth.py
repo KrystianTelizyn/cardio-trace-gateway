@@ -11,7 +11,7 @@ def test_login_url_success(client, gateway, mocker):
         "build_login_url",
         return_value="https://auth.example.com/authorize",
     )
-    response = client.get("/url/auth0")
+    response = client.get("/auth/login-url")
     assert response.status_code == 200
     data = response.json()
     assert data["login_url"] == "https://auth.example.com/authorize"
@@ -23,7 +23,7 @@ def test_login_url_auth_error_maps_to_502(client, gateway, mocker):
         "build_login_url",
         side_effect=AuthServiceException("Failed to build login URL"),
     )
-    response = client.get("/url/auth0")
+    response = client.get("/auth/login-url")
     assert response.status_code == 502
     assert response.json()["detail"] == "Failed to build login URL"
 
@@ -35,7 +35,7 @@ def test_callback_sets_csrf_cookie(client, gateway, mocker):
         return_value={"success": True, "return_to": "/", "flow_type": "login"},
     )
 
-    response = client.get("/callback", follow_redirects=False)
+    response = client.get("/auth/callback", follow_redirects=False)
     assert response.status_code == 302
     # Location should be a successful frontend callback URL.
     assert "/auth/callback/success" in response.headers["location"]
@@ -54,7 +54,7 @@ def test_callback_redirects_to_frontend_error_when_processing_fails(client, gate
         "process_callback",
         side_effect=AuthCallbackRedirectException(),
     )
-    response = client.get("/callback", follow_redirects=False)
+    response = client.get("/auth/callback", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == (
         "https://frontend.example.com/auth/callback/error?code=auth_callback_failed"
@@ -64,7 +64,7 @@ def test_callback_redirects_to_frontend_error_when_processing_fails(client, gate
 def test_logout_clears_csrf_cookie(client):
     client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
-        "/logout",
+        "/auth/logout",
         headers={"X-CSRF-Token": "csrf-token"},
     )
     assert response.status_code == 200
@@ -76,7 +76,7 @@ def test_logout_forwards_return_to_to_gateway(client, gateway, mocker):
     mocker.patch.object(gateway, "logout_user", spy)
     client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
-        "/logout",
+        "/auth/logout",
         json={"return_to": "/home"},
         headers={"X-CSRF-Token": "csrf-token"},
     )
@@ -86,7 +86,7 @@ def test_logout_forwards_return_to_to_gateway(client, gateway, mocker):
 
 
 def test_logout_rejects_without_csrf(client):
-    response = client.post("/logout")
+    response = client.post("/auth/logout")
     assert response.status_code == 403
 
 
@@ -97,7 +97,7 @@ def test_invite_doctor_success(client, gateway, mocker):
         return_value="https://invite.example.com/doctor?email=doctor@example.com",
     )
     response = client.post(
-        "/url/invite",
+        "/invites",
         json={"email": "doctor@example.com", "role": "doctor"},
     )
     assert response.status_code == 200
@@ -111,7 +111,7 @@ def test_invite_exception_maps_to_502(client, gateway, mocker):
         side_effect=InviteException("invite failed"),
     )
     response = client.post(
-        "/url/invite",
+        "/invites",
         json={"email": "patient@example.com", "role": "patient"},
     )
     assert response.status_code == 502
@@ -125,7 +125,7 @@ def test_invite_forwards_return_to_to_gateway(client, gateway, mocker):
         return_value="https://invite.example.com/doctor?email=doctor@example.com",
     )
     response = client.post(
-        "/url/invite",
+        "/invites",
         json={
             "email": "doctor@example.com",
             "role": "doctor",
@@ -147,7 +147,7 @@ def test_invite_login_url_success(client, gateway, mocker):
         return_value="https://auth.example.com/authorize?invitation=inv_123",
     )
     response = client.get(
-        "/url/auth0/invite",
+        "/auth/invite-login-url",
         params={
             "invitation": "inv_123",
             "organization": "org_456",
@@ -172,7 +172,7 @@ def test_invite_login_url_auth_error_maps_to_502(client, gateway, mocker):
         side_effect=AuthServiceException("Failed to build invite login URL"),
     )
     response = client.get(
-        "/url/auth0/invite",
+        "/auth/invite-login-url",
         params={
             "invitation": "inv_123",
             "organization": "org_456",
@@ -185,7 +185,7 @@ def test_invite_login_url_auth_error_maps_to_502(client, gateway, mocker):
 
 def test_invite_login_url_validation_requires_all_invite_query_params(client):
     response = client.get(
-        "/url/auth0/invite",
+        "/auth/invite-login-url",
         params={
             "invitation": "inv_123",
             "organization": "org_456",
@@ -225,7 +225,7 @@ def test_me_success(client, gateway, mocker):
         },
     )
 
-    response = client.get("/me")
+    response = client.get("/auth/me")
     assert response.status_code == 200
     data = response.json()
     assert data["sub"] == "user_123"
@@ -243,7 +243,7 @@ def test_me_rejects_unauthenticated(client, gateway, mocker):
         "get_access_token_from_session",
         side_effect=AccessTokenError("missing_token", "missing"),
     )
-    response = client.get("/me")
+    response = client.get("/auth/me")
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
 
@@ -259,7 +259,7 @@ def test_me_rejects_invalid_jwt(client, gateway, mocker):
         "validate_access_token",
         side_effect=JwtValidationError("Invalid token"),
     )
-    response = client.get("/me")
+    response = client.get("/auth/me")
     assert response.status_code == 401
     assert "Invalid or expired access token" in response.json()["detail"]
 
@@ -287,7 +287,7 @@ def test_me_allows_missing_identity_claims(client, gateway, mocker):
         return_value={"access_token": "example-access-token"},
     )
 
-    response = client.get("/me")
+    response = client.get("/auth/me")
     assert response.status_code == 200
     data = response.json()
     assert data["email"] is None

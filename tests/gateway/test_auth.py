@@ -40,7 +40,7 @@ def auth_service(mocker):
         audience="https://api.example.com",
         client_id="client-id",
         client_secret="client-secret",
-        redirect_uri="http://localhost/callback",
+        redirect_uri="http://localhost/auth/callback",
         secret="auth0-secret",
         scope="openid profile",
         frontend_url="https://frontend.example.com",
@@ -83,7 +83,7 @@ async def test_build_login_url_passes_base_authorization_params(auth_service):
     assert auth_params == {
         "response_type": "code",
         "client_id": "client-id",
-        "redirect_uri": "http://localhost/callback",
+        "redirect_uri": "http://localhost/auth/callback",
         "scope": "openid profile",
         "audience": "https://api.example.com",
     }
@@ -205,7 +205,7 @@ def test_set_csrf_cookie_not_secure_for_http_frontend(mocker):
         audience="https://api.example.com",
         client_id="client-id",
         client_secret="client-secret",
-        redirect_uri="http://localhost/callback",
+        redirect_uri="http://localhost/auth/callback",
         secret="auth0-secret",
         scope="openid profile",
         frontend_url="http://localhost:3000",
