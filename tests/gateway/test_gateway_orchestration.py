@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from starlette.requests import Request
@@ -105,11 +105,13 @@ async def test_get_me_aggregates_claims_from_jwt_and_session(gateway):
 @pytest.mark.asyncio
 async def test_complete_callback_sets_csrf_cookie(gateway):
     gw, auth, _, _, _ = gateway
-    auth.process_callback = AsyncMock(return_value={"success": True, "return_to": "/dashboard"})
+    auth.process_callback = AsyncMock(
+        return_value={"success": True, "return_to": "/dashboard", "flow_type": "login"}
+    )
     request = _make_request(path="/callback", query="code=1&state=2")
     response = Response()
-    return_to = await gw.complete_callback(request, response)
-    assert return_to == "/dashboard"
+    callback_result = await gw.complete_callback(request, response)
+    assert callback_result == {"return_to": "/dashboard", "flow_type": "login"}
     auth.process_callback.assert_called_once()
     auth.set_csrf_token_cookie.assert_called_once_with(response)
 
@@ -117,7 +119,9 @@ async def test_complete_callback_sets_csrf_cookie(gateway):
 @pytest.mark.asyncio
 async def test_callback_redirect_response_success(gateway):
     gw, auth, _, _, _ = gateway
-    auth.process_callback = AsyncMock(return_value={"success": True, "return_to": "/patients"})
+    auth.process_callback = AsyncMock(
+        return_value={"success": True, "return_to": "/patients", "flow_type": "login"}
+    )
     auth.success_redirect_url.side_effect = [
         "https://frontend.example.com/auth/callback/success?next=%2F",
         "https://frontend.example.com/auth/callback/success?next=%2Fpatients",
@@ -181,3 +185,15 @@ async def test_proxy_methods_validate_and_forward(gateway):
     jwt.validate_access_token.assert_any_call("token-b")
     router.api.assert_called_once_with(request, "patients", "token-a")
     router.graphql.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_notifies_invite_registration_completed(gateway):
+    gw, auth, _, _, _ = gateway
+    auth.INVITE_ACCEPT_FLOW = "invite_accept"
+    gw._notify_invite_registration_completed = Mock()
+    gw.complete_callback = AsyncMock(
+        return_value={"success": True, "return_to": "/dashboard", "flow_type": "invite_accept"}
+    )
+    request = _make_request(path="/callback", query="code=1&state=2")
+    response = await gw.callback_redirect_response(request)
+    gw._notify_invite_registration_completed.assert_called_once()
