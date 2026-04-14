@@ -157,7 +157,12 @@ async def test_process_callback_passes_url_exactly_to_server_client(auth_service
 
     result = await service.process_callback(callback_url, store_options)
 
-    assert result == {"success": True, "return_to": "/dashboard?tab=profile", "flow_type": "login"}
+    assert result == {
+        "success": True,
+        "return_to": "/dashboard?tab=profile",
+        "flow_type": "login",
+        "user_claims": None,
+    }
     server_client.complete_interactive_login.assert_called_once_with(
         url=callback_url,
         store_options=store_options,

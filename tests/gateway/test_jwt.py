@@ -4,7 +4,13 @@ from types import SimpleNamespace
 import jwt
 from app.config import JwtSettings
 from app.exceptions import JwtValidationError
-from app.gateway.jwt import GatewayJwt, TrustContext, _JWT_DECODE_LEEWAY_SEC, _normalize_auth0_issuer
+from app.gateway.jwt import (
+    GatewayJwt,
+    TrustContext,
+    _JWT_DECODE_LEEWAY_SEC,
+    _normalize_auth0_issuer,
+    roles_from_claims,
+)
 
 
 @pytest.fixture
@@ -137,3 +143,79 @@ def test_build_trust_context_raises_on_missing_roles(mocker, example_access_toke
 
     with pytest.raises(JwtValidationError, match="role"):
         validator.build_trust_context(example_access_token)
+
+
+def test_roles_from_claims_prefers_namespaced_claim():
+    claims = {
+        "https://cardio-trace.com/roles": ["doctor"],
+        "roles": ["patient"],
+    }
+    assert roles_from_claims(claims) == ["doctor"]
+
+
+def test_roles_from_claims_falls_back_to_plain_roles():
+    claims = {
+        "roles": ["patient", "doctor"],
+    }
+    assert roles_from_claims(claims) == ["patient", "doctor"]
+
+
+def test_roles_from_claims_coerces_values_to_strings():
+    claims = {
+        "https://cardio-trace.com/roles": [1, "doctor"],
+    }
+    assert roles_from_claims(claims) == ["1", "doctor"]
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"https://cardio-trace.com/roles": []},
+        {"https://cardio-trace.com/roles": "doctor"},
+        {"roles": []},
+        {"roles": "doctor"},
+        {},
+    ],
+)
+def test_roles_from_claims_returns_empty_for_invalid_or_missing_claims(claims):
+    assert roles_from_claims(claims) == []
+
+
+def test_validate_access_token_normalizes_issuer_without_trailing_slash(
+    mocker, example_access_token, auth0_shaped_claims: dict[str, object]
+):
+    jwk_cls = mocker.patch("app.gateway.jwt.PyJWKClient")
+    signing_key = SimpleNamespace(key="public-key")
+    jwk_cls.return_value.get_signing_key_from_jwt.return_value = signing_key
+    decode = mocker.patch("app.gateway.jwt.jwt.decode", return_value=auth0_shaped_claims)
+
+    settings = JwtSettings(
+        domain="tenant.auth0.com",
+        audience="https://cardio-trace-api",
+        issuer="https://tenant.auth0.com",
+    )
+    validator = GatewayJwt(settings)
+    validator.validate_access_token(example_access_token)
+
+    decode.assert_called_once_with(
+        example_access_token,
+        "public-key",
+        algorithms=["RS256"],
+        audience="https://cardio-trace-api",
+        issuer="https://tenant.auth0.com/",
+        leeway=_JWT_DECODE_LEEWAY_SEC,
+    )
+
+
+def test_validate_access_token_raises_when_jwk_fetch_fails(mocker, example_access_token):
+    jwk_cls = mocker.patch("app.gateway.jwt.PyJWKClient")
+    jwk_cls.return_value.get_signing_key_from_jwt.side_effect = jwt.exceptions.PyJWKClientError("jwks failure")
+
+    settings = JwtSettings(
+        domain="tenant.auth0.com",
+        audience="https://api.example.com",
+        issuer="https://tenant.auth0.com/",
+    )
+    validator = GatewayJwt(settings)
+    with pytest.raises(JwtValidationError, match="jwks failure"):
+        validator.validate_access_token(example_access_token)
