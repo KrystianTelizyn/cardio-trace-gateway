@@ -31,6 +31,11 @@ class ConfigError(GatewayExceptionBase):
     pass
 
 
+class InviteRegistrationError(GatewayExceptionBase):
+    """Raised when notifying the inner API about a completed invite registration fails."""
+    pass
+
+
 class GatewayNotReadyError(GatewayExceptionBase):
     """Raised when gateway readiness checks fail."""
 

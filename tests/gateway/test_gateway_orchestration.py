@@ -172,8 +172,11 @@ def test_create_invite_dispatches_by_role(gateway):
 
 
 @pytest.mark.asyncio
-async def test_proxy_methods_validate_and_forward(gateway):
-    gw, _, jwt, _, router = gateway
+async def test_proxy_methods_build_trust_context_and_forward(gateway):
+    gw, _, jwt_mock, _, router = gateway
+    ctx_a = SimpleNamespace(user_id="u1", tenant_id="org1", role="doctor")
+    ctx_b = SimpleNamespace(user_id="u2", tenant_id="org2", role="patient")
+    jwt_mock.build_trust_context.side_effect = [ctx_a, ctx_b]
     router.api = AsyncMock(return_value=SimpleNamespace(status_code=200))
     router.graphql = AsyncMock(return_value=SimpleNamespace(status_code=200))
     request = _make_request(path="/api/patients")
@@ -181,10 +184,11 @@ async def test_proxy_methods_validate_and_forward(gateway):
     await gw.proxy_api(request, "patients", "token-a")
     await gw.proxy_graphql(_make_request(path="/graphql"), "token-b")
 
-    jwt.validate_access_token.assert_any_call("token-a")
-    jwt.validate_access_token.assert_any_call("token-b")
-    router.api.assert_called_once_with(request, "patients", "token-a")
+    jwt_mock.build_trust_context.assert_any_call("token-a")
+    jwt_mock.build_trust_context.assert_any_call("token-b")
+    router.api.assert_called_once_with(request, "patients", ctx_a)
     router.graphql.assert_called_once()
+    assert router.graphql.call_args.args[1] == ctx_b
 
 @pytest.mark.asyncio
 async def test_notifies_invite_registration_completed(gateway):

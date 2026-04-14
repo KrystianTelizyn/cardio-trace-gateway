@@ -1,6 +1,10 @@
 import pytest
 from app.exceptions import CsrfValidationError, JwtValidationError
+from app.gateway.jwt import TrustContext
 from starlette.responses import Response
+
+_STUB_CTX = TrustContext(user_id="auth0|abc", tenant_id="org_1", role="doctor")
+
 
 @pytest.fixture(autouse=True)
 def mock_access_token(mocker, gateway) -> str:
@@ -12,13 +16,13 @@ def mock_access_token(mocker, gateway) -> str:
     return "tokenabc"
 
 def test_rest_proxy_success(client, gateway, mocker):
-    mocker.patch.object(gateway.jwt, "validate_access_token", return_value={})
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
     mock_response = Response(
         content="api:users:example-access-token",
         status_code=200,
         media_type="text/plain",
     )
-    
+
     client.cookies.set("gateway_csrf", "csrf-token")
     mocker.patch.object(
         gateway.router,
@@ -36,7 +40,7 @@ def test_rest_proxy_success(client, gateway, mocker):
 def test_graphql_proxy_success(client, gateway, mocker):
     client.cookies.set("gateway_csrf", "csrf-token")
 
-    mocker.patch.object(gateway.jwt, "validate_access_token", return_value={})
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
     mock_response = Response(
         content="graphql:example-access-token",
         status_code=200,
@@ -70,7 +74,7 @@ def test_rest_proxy_csrf_failure_maps_to_403(client, gateway, mocker):
 def test_graphql_proxy_jwt_failure_maps_to_401(client, gateway, mocker):
     mocker.patch.object(
         gateway.jwt,
-        "validate_access_token",
+        "build_trust_context",
         side_effect=JwtValidationError("bad token"),
     )
     client.cookies.set("gateway_csrf", "csrf-token")

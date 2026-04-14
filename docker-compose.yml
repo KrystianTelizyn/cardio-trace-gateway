@@ -1,0 +1,53 @@
+services:
+  api:
+    image: cardio-trace-backend-api:dev
+    # env_file:
+    #   - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+
+      SECRET_KEY: b91_=43i(2u)ihx_a@60tn1u8sl8v_%h%v=_71u1++qdvdz^bk
+      DEBUG: True
+      ALLOWED_HOSTS: localhost,127.0.0.1,api
+      DB_NAME: cardio_trace
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+    # ports:
+    #   - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gateway:
+    image: cardio-trace-gateway:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+
+  db:
+    image: postgres:17
+    container_name: cardio-trace-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-cardio_trace}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-cardio_trace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+    name: cardio-trace-pgdata

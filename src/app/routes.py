@@ -154,6 +154,7 @@ async def gateway_rest_proxy_put(
 async def gateway_rest_proxy_patch(
     request: Request,
     proxy_path: str = "",
+    payload: dict | None = Body(default=None),
     access_token: str = Depends(require_cookie_access_token),
     _csrf_doc: str | None = Security(csrf_header_scheme),
     _csrf_ok: None = Depends(csrf_api),

@@ -2,7 +2,10 @@ import pytest
 from starlette.requests import Request
 
 from app.config import RouterSettings
+from app.gateway.jwt import TrustContext
 from app.gateway.router import GatewayRouter, _merge_query_into_url
+
+_TEST_CTX = TrustContext(user_id="auth0|abc123", tenant_id="org_42", role="doctor")
 
 
 def _make_request(method: str, path: str, query: str = "", headers: dict[str, str] | None = None, body: bytes = b"") -> Request:
@@ -25,17 +28,22 @@ def _make_request(method: str, path: str, query: str = "", headers: dict[str, st
     return Request(scope, receive=receive)
 
 
+@pytest.fixture
+def gateway_router() -> GatewayRouter:
+    return GatewayRouter(
+        RouterSettings(
+            inner_api_base_url="https://inner.example.com",
+            hasura_graphql_url="https://hasura.example.com/graphql",
+        )
+    )
+
+
 def test_merge_query_into_url():
     assert _merge_query_into_url("https://api.example.com/items", "a=1") == "https://api.example.com/items?a=1"
     assert _merge_query_into_url("https://api.example.com/items?x=1", "a=1") == "https://api.example.com/items?x=1&a=1"
 
 
-def test_build_upstream_headers_allowlist():
-    settings = RouterSettings(
-        inner_api_base_url="https://inner.example.com",
-        hasura_graphql_url="https://hasura.example.com/graphql",
-    )
-    router = GatewayRouter(settings)
+def test_build_api_headers_injects_trust_context(gateway_router: GatewayRouter):
     request = _make_request(
         "GET",
         "/api/users",
@@ -45,18 +53,33 @@ def test_build_upstream_headers_allowlist():
             "X-Internal": "drop-me",
         },
     )
-    headers = router._build_upstream_headers(request, "token-1")
-    assert headers["Authorization"] == "Bearer token-1"
+    headers = gateway_router._build_api_headers(request, _TEST_CTX)
+
+    assert headers["X-User-Id"] == "auth0|abc123"
+    assert headers["X-Tenant-Id"] == "org_42"
+    assert headers["X-Role"] == "doctor"
     assert headers["accept"] == "application/json"
+    assert "Authorization" not in headers
     assert "x-internal" not in headers
 
-@pytest.mark.asyncio
-async def test_api_forwards_request_and_filters_response_headers(mocker):
-    settings = RouterSettings(
-        inner_api_base_url="https://inner.example.com",
-        hasura_graphql_url="https://hasura.example.com/graphql",
+
+def test_build_graphql_headers_injects_hasura_session_variables(gateway_router: GatewayRouter):
+    request = _make_request(
+        "POST",
+        "/graphql",
+        headers={"Content-Type": "application/json"},
     )
-    router = GatewayRouter(settings)
+    headers = gateway_router._build_graphql_headers(request, _TEST_CTX)
+
+    assert headers["X-Hasura-User-Id"] == "auth0|abc123"
+    assert headers["X-Hasura-Org-Id"] == "org_42"
+    assert headers["X-Hasura-Role"] == "doctor"
+    assert headers["content-type"] == "application/json"
+    assert "Authorization" not in headers
+
+
+@pytest.mark.asyncio
+async def test_api_forwards_request_and_filters_response_headers(mocker, gateway_router: GatewayRouter):
     request = _make_request(
         "POST",
         "/api/users",
@@ -68,9 +91,9 @@ async def test_api_forwards_request_and_filters_response_headers(mocker):
     upstream.content = b'{"ok":true}'
     upstream.status_code = 201
     upstream.headers = {"content-type": "application/json", "transfer-encoding": "chunked"}
-    request_mock = mocker.patch.object(router._http, "request", return_value=upstream)
+    request_mock = mocker.patch.object(gateway_router._http, "request", return_value=upstream)
 
-    response = await router.api(request, "users", "token-2")
+    response = await gateway_router.api(request, "users", _TEST_CTX)
     assert response.status_code == 201
     assert response.headers.get("transfer-encoding") is None
     assert response.body == b'{"ok":true}'
@@ -78,25 +101,28 @@ async def test_api_forwards_request_and_filters_response_headers(mocker):
     assert request_mock.call_args.args[0] == "POST"
     assert request_mock.call_args.args[1] == "https://inner.example.com/api/users?active=true"
     assert request_mock.call_args.kwargs["content"] == b'{"x":1}'
+    sent_headers = request_mock.call_args.kwargs["headers"]
+    assert sent_headers["X-User-Id"] == "auth0|abc123"
+    assert "Authorization" not in sent_headers
+
 
 @pytest.mark.asyncio
-async def test_graphql_forwards_to_hasura(mocker):
-    settings = RouterSettings(
-        inner_api_base_url="https://inner.example.com",
-        hasura_graphql_url="https://hasura.example.com/graphql",
-    )
-    router = GatewayRouter(settings)
+async def test_graphql_forwards_to_hasura(mocker, gateway_router: GatewayRouter):
     request = _make_request("POST", "/graphql", body=b'{"query":"{x}"}')
     upstream = mocker.Mock()
     upstream.content = b'{"data":{"x":1}}'
     upstream.status_code = 200
     upstream.headers = {"content-type": "application/json"}
-    request_mock = mocker.patch.object(router._http, "request", return_value=upstream)
+    request_mock = mocker.patch.object(gateway_router._http, "request", return_value=upstream)
 
-    response = await router.graphql(request, "token-3")
+    response = await gateway_router.graphql(request, _TEST_CTX)
     assert response.status_code == 200
     assert response.body == b'{"data":{"x":1}}'
     request_mock.assert_called_once()
     called_url = request_mock.call_args.args[1]
     assert called_url == "https://hasura.example.com/graphql"
     assert request_mock.call_args.kwargs["content"] == b'{"query":"{x}"}'
+    sent_headers = request_mock.call_args.kwargs["headers"]
+    assert sent_headers["X-Hasura-User-Id"] == "auth0|abc123"
+    assert sent_headers["X-Hasura-Role"] == "doctor"
+    assert "Authorization" not in sent_headers

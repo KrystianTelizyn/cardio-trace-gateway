@@ -4,19 +4,13 @@ from types import SimpleNamespace
 import jwt
 from app.config import JwtSettings
 from app.exceptions import JwtValidationError
-from app.gateway.jwt import GatewayJwt, _JWT_DECODE_LEEWAY_SEC, _normalize_auth0_issuer
+from app.gateway.jwt import GatewayJwt, TrustContext, _JWT_DECODE_LEEWAY_SEC, _normalize_auth0_issuer
 
 
-def test_normalize_auth0_issuer():
-    assert _normalize_auth0_issuer("https://tenant.auth0.com") == "https://tenant.auth0.com/"
-    assert _normalize_auth0_issuer("https://tenant.auth0.com/") == "https://tenant.auth0.com/"
-
-
-def test_validate_access_token_success_with_auth0_shaped_claims(mocker, example_access_token):
-    jwk_cls = mocker.patch("app.gateway.jwt.PyJWKClient")
-    signing_key = SimpleNamespace(key="public-key")
-    jwk_cls.return_value.get_signing_key_from_jwt.return_value = signing_key
-    decoded_claims = {
+@pytest.fixture
+def auth0_shaped_claims() -> dict[str, object]:
+    """Decoded access-token claims shaped like Auth0 + Cardio Trace custom claims."""
+    return {
         "https://cardio-trace.com/roles": ["doctor"],
         "iss": "https://tenant.auth0.com/",
         "sub": "auth0|69c67fbae0fe4c8e4c710082",
@@ -29,7 +23,33 @@ def test_validate_access_token_success_with_auth0_shaped_claims(mocker, example_
         "client_id": "LsXD3o91KL6DeOcDXphSiZNzoi7qZZHq",
         "permissions": ["read:patients", "write:patients"],
     }
-    decode = mocker.patch("app.gateway.jwt.jwt.decode", return_value=decoded_claims)
+
+
+def _make_validator(mocker, decoded_claims):
+    jwk_cls = mocker.patch("app.gateway.jwt.PyJWKClient")
+    signing_key = SimpleNamespace(key="public-key")
+    jwk_cls.return_value.get_signing_key_from_jwt.return_value = signing_key
+    mocker.patch("app.gateway.jwt.jwt.decode", return_value=decoded_claims)
+    settings = JwtSettings(
+        domain="tenant.auth0.com",
+        audience="https://cardio-trace-api",
+        issuer="https://tenant.auth0.com/",
+    )
+    return GatewayJwt(settings)
+
+
+def test_normalize_auth0_issuer():
+    assert _normalize_auth0_issuer("https://tenant.auth0.com") == "https://tenant.auth0.com/"
+    assert _normalize_auth0_issuer("https://tenant.auth0.com/") == "https://tenant.auth0.com/"
+
+
+def test_validate_access_token_success_with_auth0_shaped_claims(
+    mocker, example_access_token, auth0_shaped_claims: dict[str, object]
+):
+    jwk_cls = mocker.patch("app.gateway.jwt.PyJWKClient")
+    signing_key = SimpleNamespace(key="public-key")
+    jwk_cls.return_value.get_signing_key_from_jwt.return_value = signing_key
+    decode = mocker.patch("app.gateway.jwt.jwt.decode", return_value=auth0_shaped_claims)
 
     settings = JwtSettings(
         domain="tenant.auth0.com",
@@ -71,3 +91,49 @@ def test_validate_access_token_raises_jwt_validation_error(mocker, example_acces
     validator = GatewayJwt(settings)
     with pytest.raises(JwtValidationError):
         validator.validate_access_token(example_access_token)
+
+
+# --- build_trust_context ---
+
+def test_build_trust_context_extracts_claims(mocker, example_access_token, auth0_shaped_claims: dict[str, object]):
+    validator = _make_validator(mocker, auth0_shaped_claims)
+    ctx = validator.build_trust_context(example_access_token)
+
+    assert ctx == TrustContext(
+        user_id="auth0|69c67fbae0fe4c8e4c710082",
+        tenant_id="org_nBep3mlTxl2DlaNs",
+        role="doctor",
+    )
+
+
+def test_build_trust_context_uses_plain_roles_claim(mocker, example_access_token, auth0_shaped_claims: dict[str, object]):
+    auth0_shaped_claims.pop("https://cardio-trace.com/roles")
+    auth0_shaped_claims["roles"] = ["patient"]
+    validator = _make_validator(mocker, auth0_shaped_claims)
+    ctx = validator.build_trust_context(example_access_token)
+
+    assert ctx.role == "patient"
+
+
+def test_build_trust_context_raises_on_missing_sub(mocker, example_access_token, auth0_shaped_claims: dict[str, object]):
+    auth0_shaped_claims.pop("sub")
+    validator = _make_validator(mocker, auth0_shaped_claims)
+
+    with pytest.raises(JwtValidationError, match="sub"):
+        validator.build_trust_context(example_access_token)
+
+
+def test_build_trust_context_raises_on_missing_org_id(mocker, example_access_token, auth0_shaped_claims: dict[str, object]):
+    auth0_shaped_claims.pop("org_id")
+    validator = _make_validator(mocker, auth0_shaped_claims)
+
+    with pytest.raises(JwtValidationError, match="org_id"):
+        validator.build_trust_context(example_access_token)
+
+
+def test_build_trust_context_raises_on_missing_roles(mocker, example_access_token, auth0_shaped_claims: dict[str, object]):
+    auth0_shaped_claims.pop("https://cardio-trace.com/roles")
+    validator = _make_validator(mocker, auth0_shaped_claims)
+
+    with pytest.raises(JwtValidationError, match="role"):
+        validator.build_trust_context(example_access_token)

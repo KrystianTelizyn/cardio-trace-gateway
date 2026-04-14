@@ -189,6 +189,8 @@ class GatewayAuth:
             flow_type = (
                 app_state.get(self._LOGIN_FLOW_TYPE_KEY) if isinstance(app_state, dict) else None
             )
+            state_data = result.get("state_data") if isinstance(result, dict) else {}
+            user_claims = state_data.get("user") if isinstance(state_data, dict) else {}
             return {
                 "success": True,
                 "return_to": self._redirect_policy.normalize_return_to(raw_return_to),
@@ -197,6 +199,7 @@ class GatewayAuth:
                     if flow_type in {self.LOGIN_FLOW, self.INVITE_ACCEPT_FLOW}
                     else self.LOGIN_FLOW
                 ),
+                "user_claims": user_claims,
             }
         except Auth0Error as e:
             raise AuthCallbackRedirectException() from e
