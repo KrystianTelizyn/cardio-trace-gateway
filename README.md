@@ -4,11 +4,11 @@ FastAPI **Backend-for-Frontend (BFF)** and **API gateway** for the Cardio Trace 
 
 ## Role
 
-- **Edge integration** — Auth0-facing login, callback, and logout; session material in an **encrypted HttpOnly cookie** (per [ADR 0003](../cardio-trace-platform-architecture/docs/adr/0003-auth-token-handling.md)); the SPA does not send `Authorization: Bearer`; the gateway decrypts the session and attaches **`Authorization: Bearer <access_token>`** to upstream calls.
+- **Edge integration** — Auth0-facing login, callback, and logout; session material in an **encrypted HttpOnly cookie** (per [ADR 0003](docs/adr/0003-auth-token-handling.md)); the SPA does not send `Authorization: Bearer`; the gateway decrypts the session and forwards only trusted identity headers to upstream services.
 - **REST proxy** — Forwards application traffic to the core backend (e.g. Django DRF) under a configured base URL.
-- **GraphQL proxy** — Forwards to **Hasura** on a dedicated URL (e.g. `/graphql` → Hasura); Hasura runs as a **separate process** in the gateway stack, not inside Python ([ADR 0009](../cardio-trace-platform-architecture/docs/adr/0009-graphql-hasura-gateway-placement.md)).
+- **GraphQL proxy** — Forwards to **Hasura** on a dedicated URL (e.g. `/graphql` → Hasura); Hasura runs as a **separate process** in the gateway stack, not inside Python ([ADR 0009](docs/adr/0009-graphql-hasura-gateway-placement.md)).
 
-The gateway **orchestrates and proxies**; it does **not** own domain business rules—that stays in core backend, Hasura metadata/RBAC, and other services ([ADR 0008](../cardio-trace-platform-architecture/docs/adr/0008-gateway-bff-api-aggregator.md)).
+The gateway **orchestrates and proxies**; it does **not** own domain business rules—that stays in core backend, Hasura metadata/RBAC, and other services ([ADR 0008](docs/adr/0008-gateway-bff-api-aggregator.md)).
 
 ## Request flow 
 
@@ -25,14 +25,18 @@ flowchart LR
   fastapi --> gateway
   gateway --> auth0
   fastapi -->|"cookie session"| gateway
-  gateway -->|"Bearer token"| inner
-  gateway -->|"Bearer token"| hasura
+  gateway -->|"X-User-Id / X-Tenant-Id / X-Role"| inner
+  gateway -->|"X-Hasura-User-Id / X-Hasura-Org-Id / X-Hasura-Role"| hasura
 ```
 
 
 ## Architecture notes
 
 Implementation follows a composed **`Gateway`** facade with namespaced pieces: **`auth`** (Auth0 session / `ServerClient`), **`invites`** (Auth0 Management–backed invite flows), and **`router`** (reverse proxy to inner REST and GraphQL). Route handlers stay thin; proxy responses are built as proper Starlette responses. Configuration includes inner REST base URL and **`HASURA_GRAPHQL_URL`** for GraphQL forwarding.
+
+The proxy boundary intentionally excludes browser bearer tokens and cookie forwarding. Browser request headers are allowlisted, and the gateway injects internal trust headers only (see [ADR 0011](docs/adr/0011-gateway-redirect-and-header-policy.md) and [ADR 0012](docs/adr/0012-gateway-backend-trust-contract.md)).
+
+For cookie-backed browser sessions, unsafe REST methods (`POST`, `PUT`, `PATCH`, `DELETE`) and GraphQL `POST` enforce a double-submit CSRF check (`gateway_csrf` cookie + `X-CSRF-Token` header), as defined by [ADR 0010](docs/adr/0010-gateway-csrf-double-submit.md).
 
 ## Development
 
@@ -141,4 +145,4 @@ Optional integration variables:
 
 ## Platform ADRs
 
-Authoritative decisions live under **`cardio-trace-platform-architecture/docs`** (e.g. `docs/adr/0003-auth-token-handling.md`, `0008-gateway-bff-api-aggregator.md`, `0009-graphql-hasura-gateway-placement.md`, plus IdP, tenancy, roles, and invitations).
+Authoritative decisions live in this repository under **`docs/adr`** (e.g. `0003-auth-token-handling.md`, `0008-gateway-bff-api-aggregator.md`, `0009-graphql-hasura-gateway-placement.md`, plus IdP, tenancy, roles, invitations, CSRF, redirect/header policy, and trust contract ADRs).
