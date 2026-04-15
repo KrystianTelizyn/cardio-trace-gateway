@@ -1,5 +1,5 @@
 import pytest
-from app.exceptions import CsrfValidationError, JwtValidationError
+from app.exceptions import CsrfValidationError, JwtValidationError, RbacDeniedError
 from app.gateway.jwt import TrustContext
 from starlette.responses import Response
 
@@ -161,3 +161,25 @@ def test_rest_proxy_jwt_failure_maps_to_401(client, gateway, mocker):
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or expired access token"
+
+
+def test_rest_proxy_rbac_denied_maps_to_403_with_shape(client, gateway, mocker):
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(
+        gateway.rbac,
+        "check_rest",
+        side_effect=RbacDeniedError(method="POST", path="/alerts/1", role="patient"),
+    )
+    client.cookies.set("gateway_csrf", "csrf-token")
+    response = client.post(
+        "/api/alerts/1",
+        content=b'{"status":"ack"}',
+        headers={"X-CSRF-Token": "csrf-token"},
+    )
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Forbidden",
+        "code": "rbac_denied",
+        "path": "/alerts/1",
+        "method": "POST",
+    }
