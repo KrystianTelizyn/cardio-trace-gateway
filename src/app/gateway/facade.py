@@ -12,6 +12,7 @@ from app.exceptions import GatewayNotReadyError, InviteRegistrationError
 from app.gateway.auth import GatewayAuth
 from app.gateway.invites import Invites
 from app.gateway.jwt import GatewayJwt, roles_from_claims
+from app.gateway.rbac import RbacEnforcer
 from app.gateway.router import GatewayRouter
 from app.schemas import InviteRole, UserRegistrationPayload
 
@@ -31,6 +32,7 @@ class Gateway:
         self.jwt = GatewayJwt(settings.jwt)
         self.invites = Invites(settings.invites)
         self.router = GatewayRouter(settings.router)
+        self.rbac = RbacEnforcer(settings.rbac)
 
     async def __aenter__(self) -> Self:
         return self
@@ -156,8 +158,10 @@ class Gateway:
         access_token: str,
     ) -> StarletteResponse:
         ctx = self.jwt.build_trust_context(access_token)
+        self.rbac.check_rest(request.method, proxy_path, ctx.role)
         return await self.router.api(request, proxy_path, ctx)
 
     async def proxy_graphql(self, request: Request, access_token: str) -> StarletteResponse:
         ctx = self.jwt.build_trust_context(access_token)
+        self.rbac.check_graphql(request.method, ctx.role)
         return await self.router.graphql(request, ctx)

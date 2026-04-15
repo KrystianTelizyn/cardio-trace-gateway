@@ -14,7 +14,9 @@ from app.error_handlers import (
     csrf_validation_error_handler,
     gateway_not_ready_error_handler,
     invite_exception_handler,
+    invite_registration_error_handler,
     jwt_validation_error_handler,
+    rbac_denied_error_handler,
 )
 from app.exceptions import (
     AuthCallbackRedirectException,
@@ -22,7 +24,9 @@ from app.exceptions import (
     AuthServiceException,
     GatewayNotReadyError,
     InviteException,
+    InviteRegistrationError,
     JwtValidationError,
+    RbacDeniedError,
 )
 from app.gateway import Gateway
 from app.routes import router
@@ -43,7 +47,9 @@ def create_app(*, lifespan: Lifespan[FastAPI] | None = None):
     app.add_exception_handler(AuthCallbackRedirectException, auth_callback_redirect_exception_handler)
     app.add_exception_handler(AuthServiceException, auth_service_exception_handler)
     app.add_exception_handler(InviteException, invite_exception_handler)
+    app.add_exception_handler(InviteRegistrationError, invite_registration_error_handler)
     app.add_exception_handler(CsrfValidationError, csrf_validation_error_handler)
+    app.add_exception_handler(RbacDeniedError, rbac_denied_error_handler)
     app.add_exception_handler(GatewayNotReadyError, gateway_not_ready_error_handler)
 
     app.include_router(router)
