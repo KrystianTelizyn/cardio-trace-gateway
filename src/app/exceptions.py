@@ -23,6 +23,16 @@ class JwtValidationError(GatewayExceptionBase):
     pass
 
 
+class RbacDeniedError(GatewayExceptionBase):
+    """Raised when edge RBAC denies a request based on role and path."""
+
+    def __init__(self, *, method: str, path: str, role: str):
+        super().__init__("Forbidden")
+        self.method = method
+        self.path = path
+        self.role = role
+
+
 class CsrfValidationError(GatewayExceptionBase):
     """Raised when CSRF validation fails for a browser-initiated request."""
 
