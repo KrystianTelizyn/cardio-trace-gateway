@@ -3,7 +3,7 @@ from starlette.requests import Request
 
 from app.config import RouterSettings
 from app.gateway.jwt import TrustContext
-from app.gateway.router import GatewayRouter, _merge_query_into_url
+from app.gateway.router import GatewayRouter, _merge_query_into_url, _normalize_proxy_path
 
 _TEST_CTX = TrustContext(user_id="auth0|abc123", tenant_id="org_42", role="doctor")
 
@@ -42,6 +42,18 @@ def test_merge_query_into_url():
     assert _merge_query_into_url("https://api.example.com/items", "a=1") == "https://api.example.com/items?a=1"
     assert _merge_query_into_url("https://api.example.com/items?x=1", "a=1") == "https://api.example.com/items?x=1&a=1"
     assert _merge_query_into_url("https://api.example.com/items", "") == "https://api.example.com/items"
+
+
+@pytest.mark.parametrize(
+    "proxy_path,expected",
+    [
+        ("users", "/users"),
+        ("/users", "/users"),
+        ("", "/"),
+    ],
+)
+def test_normalize_proxy_path(proxy_path: str, expected: str):
+    assert _normalize_proxy_path(proxy_path) == expected
 
 
 def test_build_api_headers_injects_trust_context(gateway_router: GatewayRouter):
@@ -118,7 +130,7 @@ async def test_api_forwards_request_and_filters_response_headers(mocker, gateway
     assert response.body == b'{"ok":true}'
     request_mock.assert_called_once()
     assert request_mock.call_args.args[0] == "POST"
-    assert request_mock.call_args.args[1] == "https://inner.example.comusers?active=true"
+    assert request_mock.call_args.args[1] == "https://inner.example.com/users?active=true"
     assert request_mock.call_args.kwargs["content"] == b'{"x":1}'
     sent_headers = request_mock.call_args.kwargs["headers"]
     assert sent_headers["X-User-Id"] == "auth0|abc123"
@@ -129,9 +141,9 @@ async def test_api_forwards_request_and_filters_response_headers(mocker, gateway
 @pytest.mark.parametrize(
     "proxy_path,expected_url",
     [
-        ("users", "https://inner.example.comusers"),
+        ("users", "https://inner.example.com/users"),
         ("/users", "https://inner.example.com/users"),
-        ("some/path", "https://inner.example.comsome/path"),
+        ("some/path", "https://inner.example.com/some/path"),
     ],
 )
 async def test_api_forwards_proxy_path_as_provided(

@@ -39,6 +39,11 @@ def _merge_query_into_url(base_url: str, query: str) -> str:
     return f"{base_url}{connector}{query}"
 
 
+def _normalize_proxy_path(proxy_path: str) -> str:
+    """Return a path with exactly one leading slash."""
+    return f"/{proxy_path.lstrip('/')}" if proxy_path else "/"
+
+
 def _forwarded_request_headers(request: Request) -> dict[str, str]:
     return {
         name: value
@@ -100,8 +105,7 @@ class GatewayRouter:
         )
 
     async def api(self, request: Request, proxy_path: str, ctx: TrustContext) -> Response:
-        #path = "/api/" if not proxy_path else f"/api/{proxy_path}"
-        path = proxy_path
+        path = _normalize_proxy_path(proxy_path)
         query = request.url.query
         url = f"{self._inner_api_base}{path}"
         # TBD: Additional routing logic here, e.g. to handle different paths over different services.
