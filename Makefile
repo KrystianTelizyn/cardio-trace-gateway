@@ -1,12 +1,14 @@
 # Override at invoke time, e.g. `make build IMAGE=my-registry/gateway:0.2.0`.
-UV ?= uv
-IMAGE ?= cardio-trace-gateway:dev
-COMPOSE ?= docker compose
-COMPOSE_FILE ?= docker-compose.yml
 
+IMAGE_NAME := cardio-trace-gateway
+IMAGE_TAG := $(or $(IMAGE_TAG),dev)
+
+COMPOSE_FILE ?= docker-compose.dev.yml
+AWS_ACCOUNT_ID := 719030484884
+AWS_REGION := eu-north-1
 .DEFAULT_GOAL := help
 
-.PHONY: help sync dev build compose-up compose-down compose-logs test test-integration
+.PHONY: help sync dev build compose-up compose-down compose-logs test test-integration login build-image tag-image push-image
 
 help: ## Show available targets
 	@echo "Targets:"
@@ -14,26 +16,38 @@ help: ## Show available targets
 	@echo ""
 	@echo "Variables: IMAGE=$(IMAGE) COMPOSE_FILE=$(COMPOSE_FILE)"
 
+login: ## Login to ECR for Docker image push/pull
+	@echo "Initiating ECR login..."
+	aws ecr get-login-password --region $(AWS_REGION) \
+		| docker login --username AWS --password-stdin $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
+
+
 sync: ## Install/sync Python dependencies (including dev group)
-	$(UV) sync --group dev
+	uv sync --group dev
 
 dev: ## Start FastAPI in development mode (reload, local only)
-	$(UV) run fastapi dev src/app/main.py
-
-build: ## Build the production Docker image
-	docker build -t $(IMAGE) .
+	uv run fastapi dev src/app/main.py
 
 compose-up: ## Run Docker Compose (default file: docker-compose.yml; override with COMPOSE_FILE=)
-	$(COMPOSE) -f $(COMPOSE_FILE) up
+	docker compose -f $(COMPOSE_FILE) up
 
 compose-down: ## Stop and remove Docker Compose containers
-	$(COMPOSE) -f $(COMPOSE_FILE) down
+	docker compose -f $(COMPOSE_FILE) down
 
 compose-logs: ## Follow Docker Compose service logs
-	$(COMPOSE) -f $(COMPOSE_FILE) logs -f
+	docker compose -f $(COMPOSE_FILE) logs -f
 
 test: ## Run unit/contract tests (skips @pytest.mark.integration)
-	$(UV) run pytest -m "not integration"
+	uv run pytest -m "not integration"
 
 test-integration: ## Run integration tests (same as CI; needs RUN_INTEGRATION=1 and .env secrets)
-	RUN_INTEGRATION=1 $(UV) run pytest --no-cov -m integration
+	RUN_INTEGRATION=1 uv run pytest --no-cov -m integration
+
+build-image: ## Build gateway Docker image
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+tag-image: ## Tag gateway Docker image for ECR
+	docker tag $(IMAGE_NAME):$(IMAGE_TAG) $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(IMAGE_NAME):$(IMAGE_TAG)
+
+push-image: ## Push gateway Docker image to ECR
+	docker push $(AWS_ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(IMAGE_NAME):$(IMAGE_TAG)
