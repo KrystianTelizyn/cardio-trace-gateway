@@ -62,6 +62,16 @@ class MeResponse(BaseModel):
     picture: str | None = None
 
 
+class UserRegistrationPayload(BaseModel):
+    """Payload sent to the inner API when an invited user completes registration."""
+
+    auth0_user_id: str
+    auth0_org_id: str
+    role: str
+    email: str
+    name: str
+
+
 class HealthResponse(BaseModel):
     status: str
 

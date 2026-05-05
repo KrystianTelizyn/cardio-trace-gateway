@@ -8,7 +8,9 @@ from app.exceptions import (
     CsrfValidationError,
     GatewayNotReadyError,
     InviteException,
+    InviteRegistrationError,
     JwtValidationError,
+    RbacDeniedError,
 )
 
 
@@ -68,6 +70,16 @@ async def invite_exception_handler(
     )
 
 
+async def invite_registration_error_handler(
+    _request: Request,
+    exc: InviteRegistrationError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=502,
+        content={"detail": exc.message},
+    )
+
+
 async def csrf_validation_error_handler(
     _request: Request,
     exc: CsrfValidationError,
@@ -75,6 +87,21 @@ async def csrf_validation_error_handler(
     return JSONResponse(
         status_code=403,
         content={"detail": exc.message},
+    )
+
+
+async def rbac_denied_error_handler(
+    _request: Request,
+    exc: RbacDeniedError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={
+            "detail": exc.message,
+            "code": "rbac_denied",
+            "path": exc.path,
+            "method": exc.method,
+        },
     )
 
 

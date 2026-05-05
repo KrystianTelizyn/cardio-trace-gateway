@@ -1,0 +1,14 @@
+p, doctor, PATCH, /me/profile
+p, patient, PATCH, /me/profile
+
+p, doctor, POST, /patients/:id/prescriptions
+p, doctor, PATCH, /prescriptions/:id
+
+p, patient, POST, /me/dose-events
+
+p, doctor, PATCH, /alerts/:id
+
+p, doctor, POST, /devices
+
+p, doctor, POST, /device-assignments
+p, doctor, DELETE, /device-assignments/:id

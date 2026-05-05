@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import AppSettings, AuthSettings, InviteSettings, JwtSettings, RouterSettings
+from app.config import AppSettings, AuthSettings, InviteSettings, JwtSettings, RbacSettings, RouterSettings
 from app.gateway.facade import Gateway
 from app.main import create_app
 
@@ -44,7 +44,8 @@ def _test_app_settings() -> AppSettings:
         audience="https://cardio-trace-api",
         issuer="https://example.auth0.com/",
     )
-    return AppSettings(auth=auth, invites=invites, router=router, jwt=jwt)
+    rbac = RbacSettings(enforcement_mode="enforce")
+    return AppSettings(auth=auth, invites=invites, router=router, jwt=jwt, rbac=rbac)
 
 
 @pytest.fixture

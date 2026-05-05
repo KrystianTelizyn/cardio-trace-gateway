@@ -5,13 +5,16 @@ from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.responses import Response as StarletteResponse
 
+import httpx
+
 from app.config import AppSettings
-from app.exceptions import GatewayNotReadyError
+from app.exceptions import GatewayNotReadyError, InviteRegistrationError
 from app.gateway.auth import GatewayAuth
 from app.gateway.invites import Invites
-from app.gateway.jwt import GatewayJwt
+from app.gateway.jwt import GatewayJwt, roles_from_claims
+from app.gateway.rbac import RbacEnforcer
 from app.gateway.router import GatewayRouter
-from app.schemas import InviteRole
+from app.schemas import InviteRole, UserRegistrationPayload
 
 
 class Gateway:
@@ -29,6 +32,7 @@ class Gateway:
         self.jwt = GatewayJwt(settings.jwt)
         self.invites = Invites(settings.invites)
         self.router = GatewayRouter(settings.router)
+        self.rbac = RbacEnforcer(settings.rbac)
 
     async def __aenter__(self) -> Self:
         return self
@@ -56,15 +60,6 @@ class Gateway:
             raise GatewayNotReadyError(checks=checks)
         return checks
 
-    @staticmethod
-    def _roles_from_claims(claims: dict[str, Any]) -> list[str]:
-        if isinstance(claims.get("roles"), list):
-            return [str(role) for role in claims["roles"]]
-        for key, value in claims.items():
-            if key.endswith("/roles") and isinstance(value, list):
-                return [str(role) for role in value]
-        return []
-
     async def get_me(self, request: Request, response: Response, access_token: str) -> dict[str, Any]:
         claims = self.jwt.validate_access_token(access_token)
         session = await self.auth.get_session_from_request(request, response)
@@ -74,7 +69,7 @@ class Gateway:
             "org_id": claims.get("org_id"),
             "scope": claims.get("scope"),
             "permissions": [str(p) for p in claims.get("permissions", []) if isinstance(p, str)],
-            "roles": self._roles_from_claims(claims),
+            "roles": roles_from_claims(claims),
             "email": identity.get("email"),
             "name": identity.get("name"),
             "picture": identity.get("picture"),
@@ -92,14 +87,34 @@ class Gateway:
         return {
             "return_to": str(callback_result.get("return_to", "/")),
             "flow_type": str(callback_result.get("flow_type", self.auth.LOGIN_FLOW)),
+            "user_claims": callback_result.get("user_claims"),
         }
 
-    def _notify_invite_registration_completed(self, callback_result: dict[str, Any]) -> None:
-        """Placeholder for future invite-registration completion notification integration."""
-        self._logger.info(
-            "Invite registration callback completed (placeholder hook).",
-            extra={"flow_type": callback_result.get("flow_type")},
+    @staticmethod
+    def _build_user_registration_payload(claims: dict[str, Any]) -> UserRegistrationPayload:
+        roles = roles_from_claims(claims)
+        if not roles:
+            raise InviteRegistrationError("No role found in user claims during invite registration")
+        return UserRegistrationPayload(
+            auth0_user_id=claims.get("sub", ""),
+            auth0_org_id=claims.get("org_id", ""),
+            role=roles[0],
+            email=claims.get("email", ""),
+            name=claims.get("name", ""),
         )
+
+    async def _notify_invite_registration_completed(self, user_data: dict[str, Any]) -> None:
+        try:
+            payload = self._build_user_registration_payload(user_data)
+            response = await self.router.request_internal(
+                "POST", "/users", json=payload.model_dump(),
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise InviteRegistrationError(
+                f"Inner API rejected user registration: {exc.response.status_code}"
+            ) from exc
+
 
     async def callback_redirect_response(self, request: Request) -> RedirectResponse:
         success_redirect = RedirectResponse(
@@ -108,7 +123,7 @@ class Gateway:
         )
         callback_result = await self.complete_callback(request, success_redirect)
         if callback_result.get("flow_type") == self.auth.INVITE_ACCEPT_FLOW:
-            self._notify_invite_registration_completed(callback_result)
+            await self._notify_invite_registration_completed(callback_result.get("user_claims"))
         success_redirect.headers["location"] = self.auth.success_redirect_url(
             return_to=str(callback_result.get("return_to", "/"))
         )
@@ -142,9 +157,11 @@ class Gateway:
         proxy_path: str,
         access_token: str,
     ) -> StarletteResponse:
-        self.jwt.validate_access_token(access_token)
-        return await self.router.api(request, proxy_path, access_token)
+        ctx = self.jwt.build_trust_context(access_token)
+        self.rbac.check_rest(request.method, proxy_path, ctx.role)
+        return await self.router.api(request, proxy_path, ctx)
 
     async def proxy_graphql(self, request: Request, access_token: str) -> StarletteResponse:
-        self.jwt.validate_access_token(access_token)
-        return await self.router.graphql(request, access_token)
+        ctx = self.jwt.build_trust_context(access_token)
+        self.rbac.check_graphql(request.method, ctx.role)
+        return await self.router.graphql(request, ctx)

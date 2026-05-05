@@ -16,6 +16,7 @@ dependencies = [
     "fastapi[standard]>=0.135.2",
     "python-dotenv>=1.0.0",
     "requests>=2.32.5",
+    "casbin>=1.43.0",
 ]
 
 [dependency-groups]

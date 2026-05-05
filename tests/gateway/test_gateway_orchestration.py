@@ -1,12 +1,13 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.config import AppSettings, AuthSettings, InviteSettings, JwtSettings, RouterSettings
-from app.exceptions import AuthCallbackRedirectException
+from app.config import AppSettings, AuthSettings, InviteSettings, JwtSettings, RbacSettings, RouterSettings
+from app.exceptions import AuthCallbackRedirectException, InviteRegistrationError, RbacDeniedError
 from app.schemas import InviteRole
 from app.gateway.facade import Gateway
 
@@ -60,6 +61,7 @@ def _settings() -> AppSettings:
             audience="https://api.example.com",
             issuer="https://tenant.auth0.com/",
         ),
+        rbac=RbacSettings(enforcement_mode="enforce"),
     )
 
 
@@ -69,17 +71,19 @@ def gateway(mocker):
     jwt = mocker.Mock()
     invites = mocker.Mock()
     router = mocker.Mock()
+    rbac = mocker.Mock()
     mocker.patch("app.gateway.facade.GatewayAuth", return_value=auth)
     mocker.patch("app.gateway.facade.GatewayJwt", return_value=jwt)
     mocker.patch("app.gateway.facade.Invites", return_value=invites)
     mocker.patch("app.gateway.facade.GatewayRouter", return_value=router)
+    mocker.patch("app.gateway.facade.RbacEnforcer", return_value=rbac)
     gw = Gateway(_settings())
-    return gw, auth, jwt, invites, router
+    return gw, auth, jwt, invites, router, rbac
 
 
 @pytest.mark.asyncio
 async def test_get_me_aggregates_claims_from_jwt_and_session(gateway):
-    gw, auth, jwt, _, _ = gateway
+    gw, auth, jwt, _, _, _ = gateway
     jwt.validate_access_token.return_value = {
         "sub": "u1",
         "org_id": "org1",
@@ -103,22 +107,50 @@ async def test_get_me_aggregates_claims_from_jwt_and_session(gateway):
 
 
 @pytest.mark.asyncio
+async def test_get_me_filters_non_string_permissions(gateway):
+    gw, auth, jwt, _, _, _ = gateway
+    jwt.validate_access_token.return_value = {
+        "sub": "u1",
+        "org_id": "org1",
+        "scope": "openid profile",
+        "permissions": ["read:patients", 123, None],
+        "https://cardio-trace.com/roles": ["doctor"],
+    }
+    auth.get_session_from_request = AsyncMock(
+        return_value={"user": {"email": "a@b.com", "name": "Name"}}
+    )
+    auth.get_identity_claims_from_session.return_value = {
+        "email": "a@b.com",
+        "name": "Name",
+        "picture": None,
+    }
+
+    payload = await gw.get_me(_make_request(), Response(), "token")
+
+    assert payload["permissions"] == ["read:patients"]
+
+
+@pytest.mark.asyncio
 async def test_complete_callback_sets_csrf_cookie(gateway):
-    gw, auth, _, _, _ = gateway
+    gw, auth, _, _, _, _ = gateway
     auth.process_callback = AsyncMock(
         return_value={"success": True, "return_to": "/dashboard", "flow_type": "login"}
     )
     request = _make_request(path="/auth/callback", query="code=1&state=2")
     response = Response()
     callback_result = await gw.complete_callback(request, response)
-    assert callback_result == {"return_to": "/dashboard", "flow_type": "login"}
+    assert callback_result == {
+        "return_to": "/dashboard",
+        "flow_type": "login",
+        "user_claims": None,
+    }
     auth.process_callback.assert_called_once()
     auth.set_csrf_token_cookie.assert_called_once_with(response)
 
 
 @pytest.mark.asyncio
 async def test_callback_redirect_response_success(gateway):
-    gw, auth, _, _, _ = gateway
+    gw, auth, _, _, _, _ = gateway
     auth.process_callback = AsyncMock(
         return_value={"success": True, "return_to": "/patients", "flow_type": "login"}
     )
@@ -138,7 +170,7 @@ async def test_callback_redirect_response_success(gateway):
 
 @pytest.mark.asyncio
 async def test_callback_redirect_response_error_raises_dedicated_exception(gateway):
-    gw, auth, _, _, _ = gateway
+    gw, auth, _, _, _, _ = gateway
     auth.process_callback = AsyncMock(side_effect=AuthCallbackRedirectException())
     auth.success_redirect_url.return_value = (
         "https://frontend.example.com/auth/callback/success?next=%2F"
@@ -152,7 +184,7 @@ async def test_callback_redirect_response_error_raises_dedicated_exception(gatew
 @pytest.mark.parametrize("return_to", [None, "/home"])
 @pytest.mark.asyncio
 async def test_logout_user_clears_csrf_cookie(gateway, return_to):
-    gw, auth, _, _, _ = gateway
+    gw, auth, _, _, _, _ = gateway
     auth.process_logout = AsyncMock(return_value="https://auth.example.com/logout")
     response = Response()
     logout_url = await gw.logout_user(_make_request(), response, return_to=return_to)
@@ -164,16 +196,28 @@ async def test_logout_user_clears_csrf_cookie(gateway, return_to):
 
 
 def test_create_invite_dispatches_by_role(gateway):
-    gw, _, _, invites, _ = gateway
+    gw, auth, _, invites, _, _ = gateway
     invites.invite_patient.return_value = "patient-url"
     invites.invite_doctor.return_value = "doctor-url"
+    auth.normalize_return_to.return_value = "/normalized"
     assert gw.create_invite("p@example.com", InviteRole.patient) == "patient-url"
+    invites.invite_patient.assert_called_once_with("p@example.com", "/normalized")
     assert gw.create_invite("d@example.com", InviteRole.doctor) == "doctor-url"
+    invites.invite_doctor.assert_called_once_with("d@example.com", "/normalized")
+
+
+def test_build_user_registration_payload_raises_on_missing_roles(gateway):
+    gw, _, _, _, _, _ = gateway
+    with pytest.raises(InviteRegistrationError, match="No role"):
+        gw._build_user_registration_payload({"sub": "auth0|1", "org_id": "org_1"})
 
 
 @pytest.mark.asyncio
-async def test_proxy_methods_validate_and_forward(gateway):
-    gw, _, jwt, _, router = gateway
+async def test_proxy_methods_build_trust_context_and_forward(gateway):
+    gw, _, jwt_mock, _, router, rbac = gateway
+    ctx_a = SimpleNamespace(user_id="u1", tenant_id="org1", role="doctor")
+    ctx_b = SimpleNamespace(user_id="u2", tenant_id="org2", role="patient")
+    jwt_mock.build_trust_context.side_effect = [ctx_a, ctx_b]
     router.api = AsyncMock(return_value=SimpleNamespace(status_code=200))
     router.graphql = AsyncMock(return_value=SimpleNamespace(status_code=200))
     request = _make_request(path="/api/patients")
@@ -181,19 +225,94 @@ async def test_proxy_methods_validate_and_forward(gateway):
     await gw.proxy_api(request, "patients", "token-a")
     await gw.proxy_graphql(_make_request(path="/graphql"), "token-b")
 
-    jwt.validate_access_token.assert_any_call("token-a")
-    jwt.validate_access_token.assert_any_call("token-b")
-    router.api.assert_called_once_with(request, "patients", "token-a")
+    jwt_mock.build_trust_context.assert_any_call("token-a")
+    jwt_mock.build_trust_context.assert_any_call("token-b")
+    rbac.check_rest.assert_called_once_with("GET", "patients", "doctor")
+    rbac.check_graphql.assert_called_once_with("GET", "patient")
+    router.api.assert_called_once_with(request, "patients", ctx_a)
     router.graphql.assert_called_once()
+    assert router.graphql.call_args.args[1] == ctx_b
+
+
+@pytest.mark.asyncio
+async def test_proxy_api_rbac_denied_does_not_call_router(gateway):
+    gw, _, jwt_mock, _, router, rbac = gateway
+    jwt_mock.build_trust_context.return_value = SimpleNamespace(
+        user_id="u1", tenant_id="org1", role="patient"
+    )
+    rbac.check_rest.side_effect = RbacDeniedError(method="POST", path="/alerts/1", role="patient")
+    router.api = AsyncMock()
+
+    with pytest.raises(RbacDeniedError):
+        await gw.proxy_api(_make_request(path="/api/alerts/1", method="POST"), "alerts/1", "token-a")
+
+    router.api.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_notifies_invite_registration_completed(gateway):
-    gw, auth, _, _, _ = gateway
+    gw, auth, _, _, _, _ = gateway
     auth.INVITE_ACCEPT_FLOW = "invite_accept"
-    gw._notify_invite_registration_completed = Mock()
+    gw._notify_invite_registration_completed = AsyncMock()
     gw.complete_callback = AsyncMock(
-        return_value={"success": True, "return_to": "/dashboard", "flow_type": "invite_accept"}
+        return_value={
+            "success": True,
+            "return_to": "/dashboard",
+            "flow_type": "invite_accept",
+            "user_claims": {"sub": "auth0|1"},
+        }
     )
+    auth.success_redirect_url.side_effect = [
+        "https://frontend.example.com/auth/callback/success?next=%2F",
+        "https://frontend.example.com/auth/callback/success?next=%2Fdashboard",
+    ]
     request = _make_request(path="/auth/callback", query="code=1&state=2")
     response = await gw.callback_redirect_response(request)
     gw._notify_invite_registration_completed.assert_called_once()
+    gw._notify_invite_registration_completed.assert_called_once_with({"sub": "auth0|1"})
+    assert response.headers["location"] == (
+        "https://frontend.example.com/auth/callback/success?next=%2Fdashboard"
+    )
+
+
+@pytest.mark.asyncio
+async def test_notify_invite_registration_maps_http_status_error(gateway):
+    gw, _, _, _, router, _ = gateway
+    status_err = httpx.HTTPStatusError(
+        "request failed",
+        request=httpx.Request("POST", "https://inner.example.com/users"),
+        response=httpx.Response(409),
+    )
+    failure_response = Mock()
+    failure_response.raise_for_status.side_effect = status_err
+    router.request_internal = AsyncMock(return_value=failure_response)
+
+    with pytest.raises(InviteRegistrationError, match="Inner API rejected user registration: 409"):
+        await gw._notify_invite_registration_completed(
+            {
+                "sub": "auth0|1",
+                "org_id": "org_1",
+                "email": "user@example.com",
+                "name": "User",
+                "https://cardio-trace.com/roles": ["doctor"],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_callback_redirect_propagates_invite_registration_error(gateway):
+    gw, auth, _, _, _, _ = gateway
+    auth.INVITE_ACCEPT_FLOW = "invite_accept"
+    gw.complete_callback = AsyncMock(
+        return_value={
+            "return_to": "/dashboard",
+            "flow_type": "invite_accept",
+            "user_claims": {"sub": "auth0|1"},
+        }
+    )
+    gw._notify_invite_registration_completed = AsyncMock(
+        side_effect=InviteRegistrationError("registration failed")
+    )
+    request = _make_request(path="/auth/callback", query="code=1&state=2")
+
+    with pytest.raises(InviteRegistrationError, match="registration failed"):
+        await gw.callback_redirect_response(request)
