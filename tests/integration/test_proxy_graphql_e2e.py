@@ -2,20 +2,41 @@ import pytest
 
 
 @pytest.mark.integration
-def test_graphql_proxy_with_real_session_cookie(
+def test_graphql_proxy_with_real_session(
     integration_client,
-    integration_session_cookie,
+    auth_session,
     integration_graphql_probe_query,
 ):
-    if not integration_session_cookie:
-        pytest.skip("Set INTEGRATION_SESSION_COOKIE to run authenticated proxy tests.")
-
     response = integration_client.post(
         "/graphql",
-        headers={
-            "Cookie": integration_session_cookie,
-            "Content-Type": "application/json",
-        },
+        headers=auth_session.headers(),
         json={"query": integration_graphql_probe_query},
     )
-    assert response.status_code not in (401, 403), response.text
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "errors" not in payload, payload
+    assert "data" in payload
+
+
+@pytest.mark.integration
+def test_graphql_post_without_csrf_is_rejected(
+    integration_client,
+    auth_session,
+    integration_graphql_probe_query,
+):
+    response = integration_client.post(
+        "/graphql",
+        headers=auth_session.headers(csrf=False),
+        json={"query": integration_graphql_probe_query},
+    )
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.integration
+def test_graphql_get_is_not_exposed(integration_client, auth_session):
+    response = integration_client.get(
+        "/graphql",
+        params={"query": "{__typename}"},
+        headers=auth_session.headers(),
+    )
+    assert response.status_code == 405, response.text

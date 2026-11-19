@@ -141,10 +141,32 @@ Optional integration variables:
 
 - `INTEGRATION_GATEWAY_BASE_URL` (if omitted, tests try to start a local gateway on `localhost:8000`)
 - `INTEGRATION_AUTH0_CALLBACK_QUERY` (`code=...&state=...` for callback test)
-- `INTEGRATION_SESSION_COOKIE` (raw cookie header value for authenticated proxy tests)
-- `INTEGRATION_CSRF_TOKEN` (for CSRF-success mutation test)
-- `INTEGRATION_INNER_PROBE_PATH` (default: `health`)
 - `INTEGRATION_GRAPHQL_PROBE_QUERY` (default: `{__typename}`)
+
+### Authenticated e2e (proxy, edge RBAC, CSRF, `/auth/me`)
+
+These tests need a real gateway session. By default they log in once through Auth0 with
+Playwright and reuse the session cookies for the whole run. They need:
+
+- `INTEGRATION_AUTH0_ORGANIZATION_NAME`, `INTEGRATION_AUTH0_EMAIL`, `INTEGRATION_AUTH0_PASSWORD`
+  (a **doctor** in that organization)
+- `FRONTEND_URL`, `AUTH_CALLBACK_SUCCESS_PATH` (where the callback lands after login)
+- `PLAYWRIGHT_HEADLESS=1` to run without a visible browser (default: visible),
+  `PLAYWRIGHT_SLOW_MO_MS` (default: `250`)
+
+To skip the browser login (e.g. in CI), set both `INTEGRATION_SESSION_COOKIE` (raw cookie
+header value) and `INTEGRATION_CSRF_TOKEN` (the `gateway_csrf` cookie value).
+
+The test user must exist in the backend database. Backend users are created on the first
+login from an invite (ADR 0013), so a user invited in another environment gets
+`401 User not found.` from the backend until it is provisioned in this one.
+
+Against the local stack from `cardio-trace-deployment`:
+
+```bash
+RUN_INTEGRATION=1 INTEGRATION_GATEWAY_BASE_URL=http://localhost:8000 \
+  uv run pytest --no-cov -m integration
+```
 
 
 ## Platform ADRs

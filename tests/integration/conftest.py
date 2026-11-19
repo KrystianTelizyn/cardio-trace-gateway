@@ -3,12 +3,15 @@ import json
 import os
 import subprocess
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import pytest
+from playwright.sync_api import Browser, Page
 
 
 def _is_integration_enabled() -> bool:
@@ -52,10 +55,11 @@ def integration_env() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def gateway_base_url(integration_env: dict[str, str]) -> str:
+def gateway_base_url(integration_env: dict[str, str]) -> Generator[str, None, None]:
     configured = os.getenv("INTEGRATION_GATEWAY_BASE_URL", "").strip()
     if configured:
-        return configured.rstrip("/")
+        yield configured.rstrip("/")
+        return
 
     host = "localhost"
     port = 8000
@@ -121,18 +125,88 @@ def integration_client(gateway_base_url: str) -> Generator[httpx.Client, None, N
         yield client
 
 
+CSRF_COOKIE_NAME = "gateway_csrf"
+
+
+@dataclass(frozen=True)
+class AuthSession:
+    """Cookies of a logged-in browser session, ready to send with httpx."""
+
+    cookie_header: str
+    csrf_token: str
+
+    def headers(self, *, csrf: bool = True) -> dict[str, str]:
+        headers = {"Cookie": self.cookie_header, "Content-Type": "application/json"}
+        if csrf:
+            headers["X-CSRF-Token"] = self.csrf_token
+        return headers
+
+
+def _required(key: str) -> str:
+    value = os.getenv(key, "").strip()
+    if not value:
+        pytest.skip(f"Set {key} to run browser-based Auth0 login.")
+    return value
+
+
 @pytest.fixture(scope="session")
-def integration_session_cookie() -> str | None:
-    # Provide this when callback automation is not available in CI.
+def auth0_login() -> Callable[[Page, str, str], None]:
+    """Drive the Auth0 Universal Login form: organization, then email and password."""
+
+    def _login(page: Page, gateway_base_url: str, return_to: str) -> None:
+        organization_name = _required("INTEGRATION_AUTH0_ORGANIZATION_NAME")
+        email = _required("INTEGRATION_AUTH0_EMAIL")
+        password = _required("INTEGRATION_AUTH0_PASSWORD")
+
+        response = page.goto(f"{gateway_base_url}/auth/login-url?return_to={quote(return_to, safe='')}")
+        assert response is not None and response.status == 200
+        page.goto(response.json()["login_url"])
+
+        page.get_by_label("Organization name").first.fill(organization_name)
+        page.get_by_role("button", name="Continue").click()
+        page.get_by_label("Email").first.fill(email)
+        page.locator("input[type='password']").first.fill(password)
+        page.get_by_role("button", name="Continue").first.click()
+
+    return _login
+
+
+@pytest.fixture(scope="session")
+def auth_session(
+    gateway_base_url: str,
+    browser: Browser,
+    auth0_login: Callable[[Page, str, str], None],
+) -> AuthSession:
+    """
+    A real gateway session for authenticated e2e tests.
+
+    Uses INTEGRATION_SESSION_COOKIE / INTEGRATION_CSRF_TOKEN when set (e.g. CI without a
+    browser); otherwise logs in once through Auth0 with Playwright and reuses the cookies.
+    """
     cookie = os.getenv("INTEGRATION_SESSION_COOKIE", "").strip()
-    return cookie or None
+    csrf = os.getenv("INTEGRATION_CSRF_TOKEN", "").strip()
+    if cookie and csrf:
+        return AuthSession(cookie_header=f"{cookie}; {CSRF_COOKIE_NAME}={csrf}", csrf_token=csrf)
 
+    frontend_url = _required("FRONTEND_URL")
+    success_path = _required("AUTH_CALLBACK_SUCCESS_PATH")
+    context = browser.new_context()
+    try:
+        page = context.new_page()
+        auth0_login(page, gateway_base_url, "/")
+        page.wait_for_url(f"{frontend_url}{success_path}**", timeout=15000)
+        cookies = {
+            c.get("name", ""): c.get("value", "") for c in context.cookies(gateway_base_url)
+        }
+    finally:
+        context.close()
 
-@pytest.fixture(scope="session")
-def integration_csrf_token() -> str | None:
-    # Optional for unsafe-method proxy tests in CI/staging.
-    token = os.getenv("INTEGRATION_CSRF_TOKEN", "").strip()
-    return token or None
+    if CSRF_COOKIE_NAME not in cookies:
+        raise RuntimeError("Login finished but the gateway did not set the gateway_csrf cookie.")
+    return AuthSession(
+        cookie_header="; ".join(f"{name}={value}" for name, value in cookies.items()),
+        csrf_token=cookies[CSRF_COOKIE_NAME],
+    )
 
 
 @pytest.fixture(scope="session")
@@ -159,11 +233,6 @@ def callback_query_string() -> str | None:
 
 
 @pytest.fixture(scope="session")
-def integration_inner_probe_path() -> str:
-    return os.getenv("INTEGRATION_INNER_PROBE_PATH", "health").strip("/")
-
-
-@pytest.fixture(scope="session")
 def integration_graphql_probe_query() -> str:
     return os.getenv("INTEGRATION_GRAPHQL_PROBE_QUERY", "{__typename}")
 
@@ -171,4 +240,5 @@ def integration_graphql_probe_query() -> str:
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args: dict[str, Any]) -> dict[str, Any]:
     slow_mo_ms = int(os.getenv("PLAYWRIGHT_SLOW_MO_MS", "250"))
-    return {**browser_type_launch_args, "headless": False, "slow_mo": slow_mo_ms}
+    headless = os.getenv("PLAYWRIGHT_HEADLESS", "0") == "1"
+    return {**browser_type_launch_args, "headless": headless, "slow_mo": slow_mo_ms}
