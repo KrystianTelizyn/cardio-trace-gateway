@@ -2,7 +2,6 @@ import re
 
 from app.exceptions import AuthCallbackRedirectException, AuthServiceException, InviteException, JwtValidationError
 from auth0_server_python.error import AccessTokenError
-from app.gateway.auth_redirects import AuthRedirectPolicy
 
 
 def test_login_url_success(client, gateway, mocker):

@@ -65,14 +65,8 @@ def test_readyz_readiness(integration_client):
 
 
 @pytest.mark.integration
-def test_me_with_real_session_cookie(integration_client, integration_session_cookie):
-    if not integration_session_cookie:
-        pytest.skip("Set INTEGRATION_SESSION_COOKIE to run authenticated /me test.")
-
-    response = integration_client.get(
-        "/auth/me",
-        headers={"Cookie": integration_session_cookie},
-    )
+def test_me_with_real_session(integration_client, auth_session):
+    response = integration_client.get("/auth/me", headers=auth_session.headers(csrf=False))
     assert response.status_code == 200, response.text
     payload = response.json()
     for key in ("sub", "org_id", "scope", "permissions", "roles", "email", "name", "picture"):

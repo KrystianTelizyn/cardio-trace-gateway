@@ -2,42 +2,29 @@ import pytest
 
 
 @pytest.mark.integration
-def test_rest_proxy_rejects_mutation_without_csrf(
-    integration_client,
-    integration_session_cookie,
-    integration_inner_probe_path,
-):
-    if not integration_session_cookie:
-        pytest.skip("Set INTEGRATION_SESSION_COOKIE to run authenticated proxy tests.")
-
-    response = integration_client.post(
-        f"/api/{integration_inner_probe_path}",
-        headers={"Cookie": integration_session_cookie, "Content-Type": "application/json"},
-        json={"probe": True},
+def test_rest_mutation_without_csrf_header_is_rejected(integration_client, auth_session):
+    response = integration_client.patch(
+        "/api/me/profile",
+        headers=auth_session.headers(csrf=False),
+        json={},
     )
-    assert response.status_code == 403
+    assert response.status_code == 403, response.text
+    assert response.json().get("code") != "rbac_denied"
 
 
 @pytest.mark.integration
-def test_rest_proxy_accepts_mutation_with_matching_csrf(
-    integration_client,
-    integration_session_cookie,
-    integration_csrf_token,
-    integration_inner_probe_path,
-):
-    if not integration_session_cookie or not integration_csrf_token:
-        pytest.skip(
-            "Set INTEGRATION_SESSION_COOKIE and INTEGRATION_CSRF_TOKEN to run CSRF success test."
-        )
+def test_rest_mutation_with_mismatched_csrf_header_is_rejected(integration_client, auth_session):
+    headers = auth_session.headers()
+    headers["X-CSRF-Token"] = "not-the-cookie-value"
+    response = integration_client.patch("/api/me/profile", headers=headers, json={})
+    assert response.status_code == 403, response.text
 
-    cookie_header = f"{integration_session_cookie}; gateway_csrf={integration_csrf_token}"
-    response = integration_client.post(
-        f"/api/{integration_inner_probe_path}",
-        headers={
-            "Cookie": cookie_header,
-            "X-CSRF-Token": integration_csrf_token,
-            "Content-Type": "application/json",
-        },
-        json={"probe": True},
+
+@pytest.mark.integration
+def test_rest_mutation_with_matching_csrf_is_accepted(integration_client, auth_session):
+    response = integration_client.patch(
+        "/api/me/profile",
+        headers=auth_session.headers(),
+        json={},
     )
     assert response.status_code != 403, response.text

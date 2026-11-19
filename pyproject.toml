@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cardio-trace-gateway"
 version = "0.1.0"
-description = "Add your description here"
+description = "Cardio Trace BFF and API gateway: Auth0 sessions, edge RBAC, CSRF and authenticated proxy to the REST API and Hasura GraphQL"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
