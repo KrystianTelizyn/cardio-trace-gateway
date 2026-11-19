@@ -134,26 +134,6 @@ class JwtSettings:
 
 
 @dataclass(frozen=True)
-class RbacSettings:
-    """
-    Settings for edge RBAC enforcement (`RbacEnforcer`).
-    """
-
-    enforcement_mode: str
-    model_path: str | None = None
-    policy_path: str | None = None
-
-    @classmethod
-    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "RbacSettings":
-        env = Env(environ)
-        return cls(
-            enforcement_mode=env("RBAC_ENFORCEMENT_MODE", required=False) or "audit",
-            model_path=env("RBAC_MODEL_PATH", required=False),
-            policy_path=env("RBAC_POLICY_PATH", required=False),
-        )
-
-
-@dataclass(frozen=True)
 class AppSettings:
     """
     Aggregate of all gateway settings.
@@ -164,7 +144,6 @@ class AppSettings:
     invites: InviteSettings
     router: RouterSettings
     jwt: JwtSettings
-    rbac: RbacSettings
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] = os.environ) -> "AppSettings":
@@ -172,11 +151,9 @@ class AppSettings:
         router = RouterSettings.from_env(environ)
         invites = InviteSettings.from_env(environ)
         jwt = JwtSettings.from_env(environ)
-        rbac = RbacSettings.from_env(environ)
         return cls(
             auth=auth,
             invites=invites,
             router=router,
             jwt=jwt,
-            rbac=rbac,
         )

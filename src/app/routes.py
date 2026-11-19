@@ -1,9 +1,16 @@
 from fastapi import APIRouter, Body, Depends, Request, Response, Security
-from fastapi.responses import JSONResponse
 from fastapi.responses import RedirectResponse
 
-from app.deps import get_gateway, require_cookie_access_token, csrf_api, csrf_graphql, csrf_header_scheme
+from app.deps import (
+    csrf_api,
+    csrf_graphql,
+    csrf_header_scheme,
+    get_gateway,
+    require_cookie_access_token,
+    require_role,
+)
 from app.gateway import Gateway
+from app.gateway.jwt import TrustContext
 from app.schemas import (
     InviteRequest,
     InviteResponse,
@@ -117,78 +124,86 @@ async def create_invite(
         message="User invited. Follow the link to complete the invitation.",
     )
 
-@router.get("/api/{proxy_path:path}", tags=["REST"])
-async def gateway_rest_proxy_get(
+@router.patch("/api/me/profile", tags=["REST"])
+async def gateway_rest_patch_me_profile(
     request: Request,
-    proxy_path: str = "",
-    access_token: str = Depends(require_cookie_access_token),
-    _csrf_doc: str | None = Security(csrf_header_scheme),
-    _csrf_ok: None = Depends(csrf_api),
-    gateway: Gateway = Depends(get_gateway),
-):
-    return await gateway.proxy_api(request, proxy_path, access_token)
-
-@router.post("/api/{proxy_path:path}", tags=["REST"])
-async def gateway_rest_proxy_post(
-    request: Request,
-    proxy_path: str = "",
-    access_token: str = Depends(require_cookie_access_token),
-    _csrf_doc: str | None = Security(csrf_header_scheme),
-    _csrf_ok: None = Depends(csrf_api),
-    gateway: Gateway = Depends(get_gateway),
-):
-    return await gateway.proxy_api(request, proxy_path, access_token)
-
-@router.put("/api/{proxy_path:path}", tags=["REST"])
-async def gateway_rest_proxy_put(
-    request: Request,
-    proxy_path: str = "",
-    access_token: str = Depends(require_cookie_access_token),
-    _csrf_doc: str | None = Security(csrf_header_scheme),
-    _csrf_ok: None = Depends(csrf_api),
-    gateway: Gateway = Depends(get_gateway),
-):
-    return await gateway.proxy_api(request, proxy_path, access_token)
-
-@router.patch("/api/{proxy_path:path}", tags=["REST"])
-async def gateway_rest_proxy_patch(
-    request: Request,
-    proxy_path: str = "",
     payload: dict | None = Body(default=None),
-    access_token: str = Depends(require_cookie_access_token),
+    ctx: TrustContext = Depends(require_role("doctor", "patient")),
     _csrf_doc: str | None = Security(csrf_header_scheme),
     _csrf_ok: None = Depends(csrf_api),
     gateway: Gateway = Depends(get_gateway),
 ):
-    return await gateway.proxy_api(request, proxy_path, access_token)
+    return await gateway.proxy_api(request, "me/profile", ctx)
 
-@router.delete("/api/{proxy_path:path}", tags=["REST"])
-async def gateway_rest_proxy_delete(
+
+@router.post("/api/devices", tags=["REST"])
+async def gateway_rest_post_devices(
     request: Request,
-    proxy_path: str = "",
-    access_token: str = Depends(require_cookie_access_token),
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("doctor")),
     _csrf_doc: str | None = Security(csrf_header_scheme),
     _csrf_ok: None = Depends(csrf_api),
     gateway: Gateway = Depends(get_gateway),
 ):
-    return await gateway.proxy_api(request, proxy_path, access_token)
+    return await gateway.proxy_api(request, "devices", ctx)
 
-@router.get("/graphql", tags=["GraphQL"])
-async def gateway_graphql_get(
+
+@router.post("/api/device-assignments", tags=["REST"])
+async def gateway_rest_post_device_assignments(
     request: Request,
-    access_token: str = Depends(require_cookie_access_token),
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("doctor")),
     _csrf_doc: str | None = Security(csrf_header_scheme),
-    _csrf_ok: None = Depends(csrf_graphql),
+    _csrf_ok: None = Depends(csrf_api),
     gateway: Gateway = Depends(get_gateway),
 ):
-    return await gateway.proxy_graphql(request, access_token)
+    return await gateway.proxy_api(request, "device-assignments", ctx)
+
+
+@router.patch("/api/device-assignments/{assignment_id}", tags=["REST"])
+async def gateway_rest_patch_device_assignment(
+    request: Request,
+    assignment_id: str,
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("doctor")),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, f"device-assignments/{assignment_id}", ctx)
+
+
+@router.patch("/api/measurement-sessions/{session_id}", tags=["REST"])
+async def gateway_rest_patch_measurement_session_by_id(
+    request: Request,
+    session_id: str,
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("patient")),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, f"measurement-sessions/{session_id}", ctx)
+
+
+@router.post("/api/measurement-sessions", tags=["REST"])
+async def gateway_rest_post_measurement_sessions(
+    request: Request,
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("patient")),
+    _csrf_doc: str | None = Security(csrf_header_scheme),
+    _csrf_ok: None = Depends(csrf_api),
+    gateway: Gateway = Depends(get_gateway),
+):
+    return await gateway.proxy_api(request, "measurement-sessions", ctx)
 
 @router.post("/graphql", tags=["GraphQL"])
 async def gateway_graphql_post(
     request: Request,
-    access_token: str = Depends(require_cookie_access_token),
+    payload: dict | None = Body(default=None),
+    ctx: TrustContext = Depends(require_role("doctor", "patient")),
     _csrf_doc: str | None = Security(csrf_header_scheme),
     _csrf_ok: None = Depends(csrf_graphql),
     gateway: Gateway = Depends(get_gateway),
 ):
-    return await gateway.proxy_graphql(request, access_token)
+    return await gateway.proxy_graphql(request, ctx)

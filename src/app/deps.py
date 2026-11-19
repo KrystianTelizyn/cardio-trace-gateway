@@ -1,8 +1,11 @@
+from collections.abc import Awaitable, Callable
+
 from fastapi import Depends, Request, Response
 from fastapi.security import APIKeyHeader
 
-from app.exceptions import GatewayNotReadyError
+from app.exceptions import GatewayNotReadyError, RbacDeniedError
 from app.gateway import Gateway
+from app.gateway.jwt import TrustContext
 
 
 csrf_header_scheme = APIKeyHeader(name="X-CSRF-Token", auto_error=False)
@@ -47,3 +50,23 @@ async def require_cookie_access_token(
     Ensures the Auth0 session cookie yields a usable access token (refreshes if needed).
     """
     return await gateway.auth.get_access_token_from_session(request, response)
+
+
+def require_role(*allowed_roles: str) -> Callable[..., Awaitable[TrustContext]]:
+    """FastAPI dependency: validate JWT and ensure ``TrustContext.role`` is allowed."""
+
+    async def _dependency(
+        request: Request,
+        access_token: str = Depends(require_cookie_access_token),
+        gateway: Gateway = Depends(get_gateway),
+    ) -> TrustContext:
+        ctx = gateway.jwt.build_trust_context(access_token)
+        if ctx.role not in allowed_roles:
+            raise RbacDeniedError(
+                method=request.method,
+                path=request.url.path,
+                role=ctx.role,
+            )
+        return ctx
+
+    return _dependency
