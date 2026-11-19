@@ -1,9 +1,10 @@
 import pytest
-from app.exceptions import CsrfValidationError, JwtValidationError, RbacDeniedError
+from app.exceptions import CsrfValidationError, JwtValidationError
 from app.gateway.jwt import TrustContext
 from starlette.responses import Response
 
-_STUB_CTX = TrustContext(user_id="auth0|abc", tenant_id="org_1", role="doctor")
+_DOCTOR_CTX = TrustContext(user_id="auth0|abc", tenant_id="org_1", role="doctor")
+_PATIENT_CTX = TrustContext(user_id="auth0|pat", tenant_id="org_1", role="patient")
 
 
 @pytest.fixture(autouse=True)
@@ -15,10 +16,11 @@ def mock_access_token(mocker, gateway) -> str:
     )
     return "tokenabc"
 
+
 def test_rest_proxy_success(client, gateway, mocker):
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_DOCTOR_CTX)
     mock_response = Response(
-        content="api:users:example-access-token",
+        content=b"ok",
         status_code=200,
         media_type="text/plain",
     )
@@ -30,21 +32,24 @@ def test_rest_proxy_success(client, gateway, mocker):
         mocker.AsyncMock(return_value=mock_response),
     )
     response = client.post(
-        "/api/users?active=true",
+        "/api/devices?active=true",
         content=b'{"k":"v"}',
-        headers={"X-CSRF-Token": "csrf-token"},
+        headers={
+            "X-CSRF-Token": "csrf-token",
+            "content-type": "application/json",
+        },
     )
     assert response.status_code == 200
     gateway.router.api.assert_awaited_once()
-    assert gateway.router.api.call_args.args[1] == "users"
+    assert gateway.router.api.call_args.args[1] == "devices"
 
 
 def test_graphql_proxy_success(client, gateway, mocker):
     client.cookies.set("gateway_csrf", "csrf-token")
 
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_DOCTOR_CTX)
     mock_response = Response(
-        content="graphql:example-access-token",
+        content=b"graphql:example-access-token",
         status_code=200,
         media_type="text/plain",
     )
@@ -57,27 +62,34 @@ def test_graphql_proxy_success(client, gateway, mocker):
     response = client.post(
         "/graphql",
         content=b'{"query":"{ me { id } }"}',
-        headers={"X-CSRF-Token": "csrf-token"},
+        headers={
+            "X-CSRF-Token": "csrf-token",
+            "content-type": "application/json",
+        },
     )
     assert response.status_code == 200
 
 
 @pytest.mark.parametrize(
-    "method,path,csrf_required",
+    "method,path,proxy_segment,ctx,csrf_required",
     [
-        ("GET", "/api/patients/123/visits", False),
-        ("PUT", "/api/patients/123/visits", True),
-        ("PATCH", "/api/patients/123/visits", True),
-        ("DELETE", "/api/patients/123/visits", True),
+        ("PATCH", "/api/me/profile", "me/profile", _DOCTOR_CTX, True),
+        ("POST", "/api/devices", "devices", _DOCTOR_CTX, True),
+        ("POST", "/api/device-assignments", "device-assignments", _DOCTOR_CTX, True),
+        ("PATCH", "/api/device-assignments/da-1", "device-assignments/da-1", _DOCTOR_CTX, True),
+        ("POST", "/api/measurement-sessions", "measurement-sessions", _PATIENT_CTX, True),
+        ("PATCH", "/api/measurement-sessions/sess-1", "measurement-sessions/sess-1", _PATIENT_CTX, True),
     ],
 )
-def test_rest_proxy_route_matrix(client, gateway, mocker, method, path, csrf_required):
+def test_rest_proxy_route_matrix(
+    client, gateway, mocker, method, path, proxy_segment, ctx, csrf_required
+):
     client.cookies.set("gateway_csrf", "csrf-token")
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=ctx)
     mocker.patch.object(
         gateway.router,
         "api",
-        mocker.AsyncMock(return_value=Response(content="ok", status_code=200)),
+        mocker.AsyncMock(return_value=Response(content=b"ok", status_code=200)),
     )
     headers = {"content-type": "application/json"}
     if csrf_required:
@@ -87,46 +99,57 @@ def test_rest_proxy_route_matrix(client, gateway, mocker, method, path, csrf_req
 
     assert response.status_code == 200
     gateway.router.api.assert_awaited_once()
-    assert gateway.router.api.call_args.args[1] == "patients/123/visits"
+    assert gateway.router.api.call_args.args[1] == proxy_segment
 
 
 def test_rest_proxy_patch_without_payload_is_forwarded(client, gateway, mocker):
     client.cookies.set("gateway_csrf", "csrf-token")
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_DOCTOR_CTX)
     mocker.patch.object(
         gateway.router,
         "api",
-        mocker.AsyncMock(return_value=Response(content="ok", status_code=200)),
+        mocker.AsyncMock(return_value=Response(content=b"ok", status_code=200)),
     )
 
-    response = client.patch("/api/patients/123", headers={"X-CSRF-Token": "csrf-token"})
+    response = client.patch("/api/me/profile", headers={"X-CSRF-Token": "csrf-token"})
 
     assert response.status_code == 200
     gateway.router.api.assert_awaited_once()
-    assert gateway.router.api.call_args.args[1] == "patients/123"
+    assert gateway.router.api.call_args.args[1] == "me/profile"
 
 
-def test_graphql_get_proxy_success_without_csrf(client, gateway, mocker):
+def test_graphql_get_is_not_exposed(client, gateway, mocker):
+    """GraphQL is POST-only at the edge: no CSRF-exempt read path to Hasura."""
     client.cookies.set("gateway_csrf", "csrf-token")
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_DOCTOR_CTX)
     mocker.patch.object(
         gateway.router,
         "graphql",
-        mocker.AsyncMock(return_value=Response(content="ok", status_code=200)),
+        mocker.AsyncMock(return_value=Response(content=b"ok", status_code=200)),
     )
 
     response = client.get("/graphql?query=%7Bme%7Bid%7D%7D")
 
-    assert response.status_code == 200
+    assert response.status_code == 405
+    gateway.router.graphql.assert_not_awaited()
 
 
 def test_rest_proxy_csrf_failure_maps_to_403(client, gateway, mocker):
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_DOCTOR_CTX)
     mocker.patch.object(
         gateway.auth,
         "validate_csrf_token",
         side_effect=CsrfValidationError("CSRF validation failed"),
     )
-    response = client.post("/api/users", content=b"{}")
+    client.cookies.set("gateway_csrf", "csrf-token")
+    response = client.post(
+        "/api/devices",
+        content=b"{}",
+        headers={
+            "content-type": "application/json",
+            "X-CSRF-Token": "csrf-token",
+        },
+    )
     assert response.status_code == 403
     assert response.json()["detail"] == "CSRF validation failed"
 
@@ -141,7 +164,10 @@ def test_graphql_proxy_jwt_failure_maps_to_401(client, gateway, mocker):
     response = client.post(
         "/graphql",
         content=b'{"query":"{ me { id } }"}',
-        headers={"X-CSRF-Token": "csrf-token"},
+        headers={
+            "X-CSRF-Token": "csrf-token",
+            "content-type": "application/json",
+        },
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or expired access token"
@@ -155,31 +181,32 @@ def test_rest_proxy_jwt_failure_maps_to_401(client, gateway, mocker):
     )
     client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
-        "/api/users",
+        "/api/devices",
         content=b'{"name":"x"}',
-        headers={"X-CSRF-Token": "csrf-token"},
+        headers={
+            "X-CSRF-Token": "csrf-token",
+            "content-type": "application/json",
+        },
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or expired access token"
 
 
 def test_rest_proxy_rbac_denied_maps_to_403_with_shape(client, gateway, mocker):
-    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_STUB_CTX)
-    mocker.patch.object(
-        gateway.rbac,
-        "check_rest",
-        side_effect=RbacDeniedError(method="POST", path="/alerts/1", role="patient"),
-    )
+    mocker.patch.object(gateway.jwt, "build_trust_context", return_value=_PATIENT_CTX)
     client.cookies.set("gateway_csrf", "csrf-token")
     response = client.post(
-        "/api/alerts/1",
+        "/api/devices",
         content=b'{"status":"ack"}',
-        headers={"X-CSRF-Token": "csrf-token"},
+        headers={
+            "X-CSRF-Token": "csrf-token",
+            "content-type": "application/json",
+        },
     )
     assert response.status_code == 403
     assert response.json() == {
         "detail": "Forbidden",
         "code": "rbac_denied",
-        "path": "/alerts/1",
+        "path": "/api/devices",
         "method": "POST",
     }

@@ -40,20 +40,7 @@ For cookie-backed browser sessions, unsafe REST methods (`POST`, `PUT`, `PATCH`,
 
 ## Edge RBAC
 
-The gateway enforces coarse RBAC at the edge before proxying to internal services. Enforcement is backed by Casbin:
-
-- model: `src/app/gateway/rbac_model.conf`
-- policy: `src/app/gateway/rbac_policy.csv`
-
-Requests that fail RBAC checks return HTTP `403` with code `rbac_denied` in enforce mode.
-
-RBAC mode and policy locations are configurable via environment variables:
-
-- `RBAC_ENFORCEMENT_MODE` (`audit` default, `enforce` to block)
-- `RBAC_MODEL_PATH` (optional path override for Casbin model file)
-- `RBAC_POLICY_PATH` (optional path override for Casbin policy file)
-
-In `audit` mode, violations are logged and requests continue. In `enforce` mode, violations are blocked before proxying. Fine-grained, record-level authorization remains in downstream DRF and Hasura services.
+The gateway enforces coarse RBAC at the edge before proxying to internal services. Each REST and GraphQL route declares allowed roles via FastAPI dependencies (`require_role(...)`). Requests whose JWT role is not allowed return HTTP `403` with code `rbac_denied`. Fine-grained, record-level authorization remains in downstream DRF and Hasura services.
 
 ## Development
 
